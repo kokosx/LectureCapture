@@ -1,0 +1,23 @@
+[package]
+name = "lc-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command line interface for LectureCapture (headless recording, diagnostics, tests)"
+
+[[bin]]
+name = "lecturecapture-cli"
+path = "src/main.rs"
+
+[dependencies]
+lc-core = { path = "../lc-core" }
+lc-capture = { path = "../lc-capture" }
+lc-whisper = { path = "../lc-whisper" }
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+serde_json.workspace = true
+parking_lot.workspace = true
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+ctrlc = "3"

@@ -20,6 +20,7 @@ pub mod frame;
 pub mod pipeline;
 pub mod session;
 pub mod synth;
+pub mod testing;
 pub mod transcript;
 pub mod util;
 

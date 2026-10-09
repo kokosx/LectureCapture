@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lc-core"]
+members = ["crates/lc-core", "crates/lc-capture", "crates/lc-whisper", "crates/lc-cli"]
 
 [workspace.package]
 version = "0.1.0"
