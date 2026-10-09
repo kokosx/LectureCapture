@@ -22,6 +22,7 @@ export interface DetectorConfig {
   block_size: number; block_change_ratio: number; cursor_max_blocks: number; max_small_components: number;
   stable_frames: number; max_unstable_ms: number; min_change_interval_ms: number; dedupe_hash_distance: number;
   reveal_mode: "merge" | "separate"; ignore_blank: boolean; masks: NormRect[];
+  motion_filter: boolean; motion_hold_ms: number; live_video_fraction: number;
 }
 export interface VadConfig {
   frame_ms: number; threshold_above_floor_db: number; absolute_threshold_db: number; min_speech_ms: number;
@@ -43,6 +44,7 @@ export interface Settings {
   transcription: TranscriptionConfig; output: OutputConfig; consent_acknowledged: boolean;
   capture_shortcut: string; keep_awake: boolean; theme: "system" | "light" | "dark";
   last_target: CaptureTarget | null; last_crop: NormRect | null;
+  last_subject: string | null; auto_leave_meeting: boolean;
 }
 
 export interface SystemInfo {
@@ -74,8 +76,15 @@ export interface RecorderStatus {
 export type LectureStatus = "recording" | "completed" | "recovered";
 export type TranscriptionStatus = "disabled" | "pending" | "running" | "completed" | "partial" | "failed";
 
+export interface SubjectInfo { name: string; path: string; lectures: number }
+export interface AutoStopInfo {
+  schedule: { at: string; leave_meeting: boolean; window: { app: string | null; title: string | null } } | null;
+  shortcut: string; can_send_keys: boolean;
+}
+export interface AutoStopped { path: string | null; error: string | null; left_meeting: boolean; leave_error: string | null }
+
 export interface LectureSummary {
-  path: string; title: string; folder: string; started_at: string; duration_ms: number; slides: number;
+  path: string; title: string; folder: string; subject: string | null; started_at: string; duration_ms: number; slides: number;
   status: LectureStatus; transcription: TranscriptionStatus; model: string; thumbnail: string | null;
   size_bytes: number; has_audio: boolean;
 }
@@ -102,7 +111,7 @@ export interface Manifest {
   slides: Slide[]; timeline: Occurrence[]; gaps: Gap[];
 }
 export interface LectureDetail {
-  path: string; manifest: Manifest; slide_paths: Record<string, string>; records: SegmentRecord[];
+  path: string; subject: string | null; manifest: Manifest; slide_paths: Record<string, string>; records: SegmentRecord[];
   assignment: Assignment; pending_chunks: number; failed_chunks: number; size_bytes: number; has_audio: boolean; prompt_exists: boolean;
 }
 export interface JobStatus { state: string; progress: number; error: string | null; last_text: string | null; kind: string }
@@ -115,7 +124,8 @@ export interface AudioSelection {
 }
 export interface AudioTestSource { kind: string; description: string; started: boolean; error: string | null; buffers: number; seconds_received: number; level_db: number; peak: number }
 export interface StartRequest {
-  title: string; output_dir: string | null; target: CaptureTarget; crop: NormRect | null; audio: AudioSelection;
+  title: string; output_dir: string | null; subject: string | null; stop_at: string | null; leave_meeting: boolean;
+  target: CaptureTarget; crop: NormRect | null; audio: AudioSelection;
   transcription: boolean; model: string; language: string; live: boolean;
 }
 
@@ -156,6 +166,14 @@ export const api = {
   cancelTranscription: (path: string) => invoke<void>("cancel_transcription", { path }),
   resumeTranscription: (path: string, model?: string) => invoke<void>("resume_transcription", { path, model: model ?? null }),
   takeRecoveries: () => invoke<RecoveryReport[]>("take_recoveries"),
+  listSubjects: () => invoke<SubjectInfo[]>("list_subjects"),
+  createSubject: (name: string) => invoke<SubjectInfo>("create_subject", { name }),
+  renameSubject: (name: string, newName: string) => invoke<void>("rename_subject", { name, newName }),
+  deleteSubject: (name: string) => invoke<void>("delete_subject", { name }),
+  moveLecture: (path: string, subject: string | null) => invoke<string>("move_lecture", { path, subject }),
+  getAutoStop: () => invoke<AutoStopInfo>("get_auto_stop"),
+  setAutoStop: (stopAt: string | null, leaveMeeting: boolean) => invoke<AutoStopInfo>("set_auto_stop", { stopAt, leaveMeeting }),
+  openKeyPermissionSettings: () => invoke<void>("open_key_permission_settings"),
 };
 
 export const fileSrc = (path: string, version?: string | number) =>

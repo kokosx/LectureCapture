@@ -51,6 +51,14 @@ pub struct DetectorConfig {
     pub ignore_blank: bool,
     /// Regions (normalized, relative to the captured region) excluded from analysis.
     pub masks: Vec<NormRect>,
+    /// Ignore regions with continuous motion (lecturer's webcam, video): they are
+    /// masked automatically and never trigger new slides on their own.
+    pub motion_filter: bool,
+    /// A moving region stays masked until it has been still for this long.
+    pub motion_hold_ms: u64,
+    /// If at least this fraction of the image is moving, the frame is treated as
+    /// live video (camera only, no slide) and nothing is saved.
+    pub live_video_fraction: f32,
 }
 
 impl Default for DetectorConfig {
@@ -71,6 +79,9 @@ impl Default for DetectorConfig {
             reveal_mode: RevealMode::Merge,
             ignore_blank: true,
             masks: Vec::new(),
+            motion_filter: true,
+            motion_hold_ms: 4_000,
+            live_video_fraction: 0.6,
         }
     }
 }

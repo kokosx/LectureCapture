@@ -13,17 +13,18 @@ const dark = new URLSearchParams(location.search).get("dark") === "1";
 
 const settings = {
   lectures_root: "/Users/student/Documents/LectureCapture", known_roots: [],
-  detector: { sample_fps: 2, analysis_width: 320, pixel_threshold: 28, shift_tolerance: 1, block_size: 16, block_change_ratio: 0.03, cursor_max_blocks: 2, max_small_components: 3, stable_frames: 3, max_unstable_ms: 15000, min_change_interval_ms: 800, dedupe_hash_distance: 10, reveal_mode: "merge", ignore_blank: true, masks: [] },
+  detector: { sample_fps: 2, analysis_width: 320, pixel_threshold: 28, shift_tolerance: 1, block_size: 16, block_change_ratio: 0.03, cursor_max_blocks: 2, max_small_components: 3, stable_frames: 3, max_unstable_ms: 15000, min_change_interval_ms: 800, dedupe_hash_distance: 10, reveal_mode: "merge", ignore_blank: true, masks: [], motion_filter: true, motion_hold_ms: 4000, live_video_fraction: 0.6 },
   audio: { capture_system: true, capture_microphone: false, microphone_device: null, loopback_device: null, only_application: null, microphone_gain: 1, opus_bitrate: 32000, retention: "keep", silence_threshold_db: -60, silence_warn_ms: 30000, vad: {} },
   transcription: { enabled: true, model: "base", language: "pl", threads: 4, live: true, beam_size: 1, initial_prompt: null },
   output: { webp_archive: false, png_compression: "balanced" }, consent_acknowledged: view !== "consent",
   capture_shortcut: "CmdOrCtrl+Shift+S", keep_awake: true, theme: dark ? "dark" : "light", last_target: null, last_crop: null,
+  last_subject: "Algorytmy i struktury danych", auto_leave_meeting: true,
 };
 const slide = (i: number) => `/dev-preview/00${i}.png`;
 const lectures = [
-  { path: "/L/1", title: "Algorytmy i struktury danych", folder: "2026-10-09_Algorytmy", started_at: "2026-10-09T10:15:00+02:00", duration_ms: 5_412_000, slides: 42, status: "completed", transcription: "completed", model: "base", thumbnail: slide(1), size_bytes: 98_000_000, has_audio: true },
-  { path: "/L/2", title: "Analiza matematyczna II", folder: "x", started_at: "2026-10-08T12:00:00+02:00", duration_ms: 5_300_000, slides: 31, status: "completed", transcription: "running", model: "small", thumbnail: slide(2), size_bytes: 71_000_000, has_audio: true },
-  { path: "/L/3", title: "Systemy operacyjne", folder: "x", started_at: "2026-10-07T08:00:00+02:00", duration_ms: 4_100_000, slides: 27, status: "recovered", transcription: "partial", model: "base", thumbnail: slide(3), size_bytes: 55_000_000, has_audio: true },
+  { path: "/L/1", title: "Drzewa binarne", subject: "Algorytmy i struktury danych", folder: "2026-10-09_Algorytmy", started_at: "2026-10-09T10:15:00+02:00", duration_ms: 5_412_000, slides: 42, status: "completed", transcription: "completed", model: "base", thumbnail: slide(1), size_bytes: 98_000_000, has_audio: true },
+  { path: "/L/2", title: "Całki niewłaściwe", subject: "Analiza matematyczna II", folder: "x", started_at: "2026-10-08T12:00:00+02:00", duration_ms: 5_300_000, slides: 31, status: "completed", transcription: "running", model: "small", thumbnail: slide(2), size_bytes: 71_000_000, has_audio: true },
+  { path: "/L/3", title: "Systemy operacyjne – wstęp", subject: null, folder: "x", started_at: "2026-10-07T08:00:00+02:00", duration_ms: 4_100_000, slides: 27, status: "recovered", transcription: "partial", model: "base", thumbnail: slide(3), size_bytes: 55_000_000, has_audio: true },
 ];
 const models = [
   { info: { id: "tiny", label: "Whisper Tiny (multilingual)", description: "Najszybszy, najmniej dokładny. ~75 MB.", file: "", size: 77691713, sha256: "", default: false }, installed: true, verified: true, path: "" },
@@ -48,7 +49,7 @@ const status = {
   ],
 };
 const detail = {
-  path: "/L/1", size_bytes: 98_000_000, has_audio: true, prompt_exists: true, pending_chunks: 0, failed_chunks: 0,
+  path: "/L/1", subject: "Algorytmy i struktury danych", size_bytes: 98_000_000, has_audio: true, prompt_exists: true, pending_chunks: 0, failed_chunks: 0,
   slide_paths: { "1": slide(1), "2": slide(2), "3": slide(3) },
   records: [
     { chunk_id: 1, start_ms: 2000, end_ms: 9000, text: "Dzień dobry państwu. Dzisiaj omówimy drzewa binarne.", words: [], lang: "pl", no_speech_prob: 0, model: "base" },
@@ -94,6 +95,12 @@ mockIPC((cmd) => {
     case "disk_free": return 212_000_000_000;
     case "get_lecture": return detail;
     case "transcription_status": return { service: null, job: null };
+    case "list_subjects": return [
+      { name: "Algorytmy i struktury danych", path: "/L/A", lectures: 1 },
+      { name: "Analiza matematyczna II", path: "/L/B", lectures: 1 },
+      { name: "Fizyka", path: "/L/C", lectures: 0 },
+    ];
+    case "get_auto_stop": return { schedule: view === "recording" ? { at: "2026-10-09T21:00:00+02:00", leave_meeting: true, window: { app: "com.microsoft.teams2", title: null } } : null, shortcut: "⌘⇧H", can_send_keys: true };
     default: return null;
   }
 });

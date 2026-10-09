@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { BookOpen, Plus, Settings as SettingsIcon, Radio, Cpu } from "lucide-react";
-import { api, Settings } from "./lib/api";
+import { api, AutoStopped, Settings } from "./lib/api";
 import { cx, ToastProvider, useToast } from "./components/ui";
 import { Dashboard } from "./views/Dashboard";
 import { NewLecture } from "./views/NewLecture";
@@ -14,7 +14,8 @@ import { Consent } from "./views/Consent";
 
 export type Route =
   | { name: "dashboard" }
-  | { name: "new" }
+  /** `subject`: preselected subject ("" = none, undefined = last used). */
+  | { name: "new"; subject?: string }
   | { name: "recording" }
   | { name: "lecture"; path: string }
   | { name: "models" }
@@ -87,9 +88,20 @@ function Shell() {
       toast("Trwa nagrywanie. Zatrzymaj je przyciskiem „Zatrzymaj i zapisz”, zanim zamkniesz aplikację.", "error");
     });
     const un2 = listen("stop-requested", () => setRoute({ name: "recording" }));
+    const un3 = listen("auto-stop-started", () => toast("Ustawiona godzina końca – zapisuję wykład…", "info"));
+    const un4 = listen<AutoStopped>("auto-stopped", (e) => {
+      const r = e.payload;
+      setRecording(false);
+      if (r.error) toast(`Automatyczne zakończenie nie powiodło się: ${r.error}`, "error");
+      else toast(`Wykład zapisany automatycznie${r.left_meeting ? " i opuszczono spotkanie Teams" : ""}.`, "success");
+      if (r.leave_error) toast(`Nie udało się opuścić spotkania: ${r.leave_error}`, "error");
+      if (r.path) setRoute({ name: "lecture", path: r.path });
+    });
     return () => {
       un1.then((f) => f());
       un2.then((f) => f());
+      un3.then((f) => f());
+      un4.then((f) => f());
     };
   }, [toast]);
 
@@ -140,7 +152,7 @@ function Shell() {
         <div data-tauri-drag-region className="h-[38px] shrink-0" />
         <div className="flex-1 min-h-0 overflow-auto">
           {route.name === "dashboard" && <Dashboard nav={nav} recording={recording} />}
-          {route.name === "new" && (recording ? <Recording nav={nav} /> : <NewLecture nav={nav} onStarted={() => { setRecording(true); setRoute({ name: "recording" }); }} />)}
+          {route.name === "new" && (recording ? <Recording nav={nav} /> : <NewLecture nav={nav} subject={route.subject} onStarted={() => { setRecording(true); setRoute({ name: "recording" }); }} />)}
           {route.name === "recording" && <Recording nav={nav} />}
           {route.name === "lecture" && <LectureDetailView nav={nav} path={route.path} />}
           {route.name === "models" && <ModelsView />}

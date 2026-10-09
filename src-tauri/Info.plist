@@ -8,5 +8,7 @@
   <string>LectureCapture zapisuje slajdy z wybranego okna lub obszaru ekranu oraz dźwięk wykładu – wyłącznie lokalnie na tym komputerze.</string>
   <key>NSAudioCaptureUsageDescription</key>
   <string>LectureCapture nagrywa dźwięk wykładu odtwarzany przez Microsoft Teams, aby lokalnie utworzyć transkrypcję.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>LectureCapture może o ustawionej godzinie zakończyć nagrywanie i opuścić spotkanie Microsoft Teams, wysyłając skrót „Opuść” do okna spotkania.</string>
 </dict>
 </plist>

@@ -42,6 +42,10 @@ Potem uruchom aplikację normalnie z Launchpada / folderu Aplikacje.
    włącz LectureCapture w *Ustawienia systemowe → Prywatność i ochrona → Nagrywanie ekranu i dźwięku systemowego*,
    a następnie **uruchom aplikację ponownie** (macOS tego wymaga).
 2. Mikrofon (opcjonalnie) – system zapyta, gdy włączysz go w nowym wykładzie.
+3. **Dostępność** (opcjonalnie) – tylko jeśli używasz *Zakończ o godzinie → Opuść spotkanie Teams*. Aplikacja wysyła wtedy
+   skrót ⌘⇧H do okna spotkania, a macOS wymaga na to zgody: *Ustawienia systemowe → Prywatność i ochrona → Dostępność* →
+   włącz LectureCapture (przycisk „Otwórz ustawienia” w aplikacji). Przy pierwszym użyciu system może też zapytać o
+   sterowanie aplikacją „System Events” – kliknij **OK**.
 
 > Po aktualizacji do nowej wersji macOS może ponownie poprosić o uprawnienie nagrywania ekranu
 > (aplikacja nie ma stałego podpisu). Jeśli przechwytywanie pokazuje czarny obraz: usuń LectureCapture z listy

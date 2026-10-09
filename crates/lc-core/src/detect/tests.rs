@@ -1,12 +1,12 @@
 use super::*;
 use crate::config::{DetectorConfig, RevealMode};
 use crate::frame::NormRect;
-use crate::synth::{shifted, slide, to_bgra, with_cursor, with_noise};
+use crate::synth::{shifted, slide, to_bgra, webcam, with_cursor, with_noise};
 
 const W: u32 = 1280;
 const H: u32 = 720;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Ev {
     New(SlideId, u64),
     NewBuild(SlideId, SlideId),
@@ -150,7 +150,7 @@ fn deduplicates_identical_slides_and_records_revisit() {
 
 #[test]
 fn never_stable_content_is_saved_after_timeout() {
-    let cfg = DetectorConfig { max_unstable_ms: 5_000, ..Default::default() };
+    let cfg = DetectorConfig { max_unstable_ms: 5_000, motion_filter: false, ..Default::default() };
     let mut d = SlideDetector::new(cfg, None);
     let mut ev = Vec::new();
     let mut unstable_flag = false;
@@ -252,4 +252,96 @@ fn saved_frame_has_native_cropped_resolution() {
     }
     let f = saved.expect("slide saved");
     assert_eq!((f.width, f.height), (960, 1080));
+}
+
+/// Lecturer on camera: sways, gestures and sometimes holds still for a few seconds.
+fn camera_frames(seconds: u64, seed: u64) -> Vec<Frame> {
+    let mut x = 0i32;
+    let mut y = 0i32;
+    let mut state = seed * 7 + 3;
+    let mut out = Vec::new();
+    for i in 0..seconds * 2 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let r = (state >> 33) as i32;
+        // every ~8 s the lecturer holds still for ~2.5 s
+        let still = i % 16 >= 11;
+        if !still {
+            x = (x + r % 61 - 30).clamp(-200, 200);
+            y = (y + (r >> 8) % 21 - 10).clamp(-40, 40);
+        }
+        let arm = if still { 0 } else { ((r >> 4) % 120) as u32 };
+        out.push(with_noise(&webcam(W / 2, H / 2, x / 2, y / 2, arm / 2), 6, i));
+    }
+    out
+}
+
+#[test]
+fn moving_lecturer_on_camera_is_not_saved_repeatedly() {
+    let mut d = SlideDetector::new(DetectorConfig::default(), None);
+    let mut ev = Vec::new();
+    feed(&mut d, &camera_frames(120, 1), 0, &mut ev);
+    // at most the very first view of the camera may be kept, never a stream of shots
+    assert!(ev.len() <= 1, "camera produced {} slides: {ev:?}", ev.len());
+
+    // without the filter the same footage produces many "slides" (the reported bug)
+    let mut old = SlideDetector::new(DetectorConfig { motion_filter: false, ..Default::default() }, None);
+    let mut ev_old = Vec::new();
+    feed(&mut old, &camera_frames(120, 1), 0, &mut ev_old);
+    assert!(ev_old.len() >= 5, "reference behaviour changed: {ev_old:?}");
+}
+
+#[test]
+fn slide_after_camera_is_detected_with_correct_time() {
+    let mut d = SlideDetector::new(DetectorConfig::default(), None);
+    let mut ev = Vec::new();
+    let t = feed(&mut d, &camera_frames(40, 2), 0, &mut ev);
+    let before = ev.len();
+    let a = slide(W, H, 21, 5);
+    feed(&mut d, &repeat(&a, 20), t, &mut ev);
+    let after: Vec<_> = ev[before..].to_vec();
+    assert_eq!(after.len(), 1, "{ev:?}");
+    match after[0] {
+        Ev::New(_, at) => assert_eq!(at, t, "slide must be timestamped when it appeared"),
+        ref other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[test]
+fn camera_overlay_on_slide_does_not_hide_slide_changes() {
+    // Teams shows the presenter's video in a corner of the shared slide
+    let overlay = |base: &Frame, i: u64| {
+        let cam = webcam(240, 135, ((i * 37) % 40) as i32 - 20, ((i * 13) % 14) as i32 - 7, ((i * 29) % 40) as u32);
+        let mut f = base.clone();
+        for y in 0..135u32 {
+            for x in 0..240u32 {
+                f.fill_rect(W - 250 + x, H - 145 + y, 1, 1, cam.rgb_at(x, y));
+            }
+        }
+        f
+    };
+    let mut d = SlideDetector::new(DetectorConfig::default(), None);
+    let mut ev = Vec::new();
+    let mut t = 0;
+    let mut i = 0;
+    for (seed, lines) in [(31, 4), (32, 6), (33, 3)] {
+        let s = slide(W, H, seed, lines);
+        let frames: Vec<Frame> = (0..30).map(|_| { i += 1; overlay(&s, i) }).collect();
+        t = feed(&mut d, &frames, t, &mut ev);
+    }
+    let new: Vec<_> = ev.iter().filter(|e| matches!(e, Ev::New(..))).collect();
+    assert_eq!(new.len(), 3, "{ev:?}");
+}
+
+#[test]
+fn motion_filter_keeps_normal_slide_timing() {
+    let mut d = SlideDetector::new(DetectorConfig::default(), None);
+    let mut ev = Vec::new();
+    let mut t = 0;
+    let mut starts = Vec::new();
+    for seed in 40..46 {
+        starts.push(t);
+        t = feed(&mut d, &repeat(&with_noise(&slide(W, H, seed, 3 + (seed % 3) as u32), 6, seed), 8), t, &mut ev);
+    }
+    let times: Vec<u64> = ev.iter().filter_map(|e| if let Ev::New(_, at) = e { Some(*at) } else { None }).collect();
+    assert_eq!(times, starts);
 }

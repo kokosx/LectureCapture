@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Pause, Play, Camera, Square, Image as ImageIcon, Mic, MicOff, AlertTriangle, Info, XCircle } from "lucide-react";
-import { api, fileSrc, RecorderStatus } from "../lib/api";
-import { errorText, fmtBytes, fmtMs, plural } from "../lib/format";
+import { Pause, Play, Camera, Square, Image as ImageIcon, Mic, MicOff, AlertTriangle, Info, XCircle, Clock } from "lucide-react";
+import { api, AutoStopInfo, fileSrc, RecorderStatus } from "../lib/api";
+import { AutoStopFields } from "./NewLecture";
+import { errorText, fmtBytes, fmtDuration, fmtMs, plural } from "../lib/format";
 import { Badge, Button, Card, LevelMeter, Modal, useToast, cx } from "../components/ui";
 import type { Nav } from "../App";
 
@@ -12,6 +13,68 @@ function Stat({ label, value, sub }: { label: string; value: React.ReactNode; su
       <div className="text-[18px] font-semibold tabular-nums mt-0.5">{value}</div>
       {sub && <div className="text-[11.5px] text-subtle mt-0.5">{sub}</div>}
     </div>
+  );
+}
+
+function hhmm(iso: string) {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function AutoStopCard({ nav }: { nav: Nav }) {
+  const toast = useToast();
+  const [info, setInfo] = useState<AutoStopInfo | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [time, setTime] = useState("21:00");
+  const [leave, setLeave] = useState(nav.settings.auto_leave_meeting);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    api.getAutoStop().then((i) => {
+      setInfo(i);
+      if (i.schedule) {
+        setEnabled(true);
+        setTime(hhmm(i.schedule.at));
+        setLeave(i.schedule.leave_meeting);
+      }
+    });
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const save = async () => {
+    try {
+      const i = await api.setAutoStop(enabled ? time : null, leave);
+      setInfo(i);
+      setEditing(false);
+      toast(i.schedule ? `Nagranie zakończy się o ${hhmm(i.schedule.at)}.` : "Wyłączono automatyczne zakończenie.", "success");
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  };
+
+  const sch = info?.schedule;
+  const left = sch ? Math.max(0, new Date(sch.at).getTime() - now) : 0;
+  return (
+    <Card title="Koniec wykładu" actions={!editing && <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>{sch ? "Zmień" : "Ustaw"}</Button>}>
+      {editing ? (
+        <div className="space-y-3">
+          <AutoStopFields enabled={enabled} setEnabled={setEnabled} time={time} setTime={setTime} leave={leave} setLeave={setLeave} info={info} />
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Anuluj</Button>
+            <Button size="sm" variant="primary" onClick={save}>Zapisz</Button>
+          </div>
+        </div>
+      ) : sch ? (
+        <div className="text-[12.5px] space-y-1">
+          <div className="flex items-center gap-2 font-medium"><Clock size={14} className="text-accent" /> o {hhmm(sch.at)} <span className="text-muted font-normal">(za {fmtDuration(left)})</span></div>
+          <div className="text-muted">{sch.leave_meeting ? `Zapisze wykład i opuści spotkanie Teams (${info?.shortcut}).` : "Zapisze wykład (bez opuszczania spotkania)."}</div>
+        </div>
+      ) : (
+        <div className="text-muted text-[12.5px]">Nagrywasz do ręcznego zatrzymania.</div>
+      )}
+    </Card>
   );
 }
 
@@ -192,6 +255,7 @@ export function Recording({ nav }: { nav: Nav }) {
               {t.error && <div className="text-red-500 text-[12px] selectable">{t.error}</div>}
             </div>
           </Card>
+          <AutoStopCard nav={nav} />
           <Card title="Komunikaty">
             {st.warnings.length === 0 ? (
               <div className="text-muted text-[12.5px]">Wszystko działa poprawnie.</div>

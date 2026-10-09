@@ -13,16 +13,17 @@ Bez chmury, kont, kluczy API i telemetrii. Jedyne połączenie sieciowe: pobrani
 ## Co dostajesz po wykładzie
 
 ```
-2026-10-09_Algorytmy-i-struktury-danych/
-├── slides/001.png 002.png …      # każdy slajd raz, natywna rozdzielczość, PNG bezstratnie
-├── audio/recording.ogg           # Opus 16 kHz mono (opcjonalnie usuwany po transkrypcji)
-├── transcript/
-│   ├── full.md                   # pełna transkrypcja z czasami [MM:SS]
-│   ├── by-slide.md               # wypowiedzi przypisane do slajdów
-│   └── segments.jsonl            # segmenty + czasy pojedynczych słów (dane maszynowe)
-├── manifest.json                 # schemat v1: slajdy, oś czasu, braki danych, zdarzenia
-├── lecture.md                    # przegląd: slajd → obraz → co mówił prowadzący
-└── PROMPT.md                     # instrukcja dla agenta AI
+Algorytmy i struktury danych/        # przedmiot (folder) – opcjonalny
+└── 2026-10-09_Drzewa-binarne/        # jeden wykład
+    ├── slides/001.png 002.png …      # każdy slajd raz, natywna rozdzielczość, PNG bezstratnie
+    ├── audio/recording.ogg           # Opus 16 kHz mono (opcjonalnie usuwany po transkrypcji)
+    ├── transcript/
+    │   ├── full.md                   # pełna transkrypcja z czasami [MM:SS]
+    │   ├── by-slide.md               # wypowiedzi przypisane do slajdów
+    │   └── segments.jsonl            # segmenty + czasy pojedynczych słów (dane maszynowe)
+    ├── manifest.json                 # schemat v1: slajdy, oś czasu, braki danych, zdarzenia
+    ├── lecture.md                    # przegląd: slajd → obraz → co mówił prowadzący
+    └── PROMPT.md                     # instrukcja dla agenta AI
 ```
 
 ### Jak zrobić materiały do nauki z Claude
@@ -44,6 +45,9 @@ niewymyślania treści, terminologii fachowej po polsku i prostszych wyjaśnień
 | Funkcja | Status |
 |---|---|
 | Detekcja zmiany slajdu (kursor, szum kompresji, przesunięcia 1 px, maski, stabilność, timeout dla animacji) | ✅ testy automatyczne (syntetyczne slajdy) |
+| Filtr kamery / ruchomych obszarów (prowadzący na kamerce bez slajdu, nakładka z kamerą na slajdzie, wideo) | ✅ testy automatyczne (syntetyczna kamera: 22 → 1 zrzut na 3 min) |
+| Przedmioty (foldery) – tworzenie, zmiana nazwy, przenoszenie wykładów | ✅ testy automatyczne + podgląd UI |
+| Automatyczne zakończenie o godzinie + opuszczenie spotkania Teams (⌘⇧H / Ctrl+Shift+H) | ⚠️ zaimplementowane; wysyłanie skrótu wymaga uprawnienia „Dostępność” (macOS), nie testowane na prawdziwym spotkaniu |
 | Stopniowe ujawnianie punktów (scalanie lub osobne slajdy), deduplikacja i powroty do slajdów | ✅ testy automatyczne |
 | Zapis PNG bit‑w‑bit bezstratnie w natywnej rozdzielczości, SHA‑256 | ✅ testy automatyczne |
 | Resampling 48/44,1 kHz → 16 kHz, mikser źródeł zsynchronizowany z zegarem, luki (uśpienie) bez alokacji | ✅ testy automatyczne |
@@ -98,7 +102,12 @@ Tryb deweloperski: `npx tauri dev`. Dla stabilnych uprawnień TCC podpisz aplika
 1. Potwierdź informację o zasadach nagrywania (zgoda prowadzącego/uczelni).
 2. macOS: nadaj uprawnienie **Nagrywanie ekranu i dźwięku systemowego** (przycisk w aplikacji) i uruchom ją ponownie.
 3. *Modele Whisper* → pobierz model (domyślnie *Base*; dla polskiego najlepszy *Large v3 Turbo*).
-4. *Nowy wykład* → wybierz okno Teams, przeciągnij prostokąt na podglądzie wokół samej prezentacji, *Test dźwięku*, *Rozpocznij nagrywanie*.
+4. *Wykłady* → *Nowy przedmiot* (np. „Analiza matematyczna”) – każdy przedmiot to osobny folder z wykładami.
+5. *Nowy wykład* → wybierz przedmiot i okno Teams, przeciągnij prostokąt na podglądzie wokół samej prezentacji, *Test dźwięku*, *Rozpocznij nagrywanie*.
+6. Opcjonalnie *Koniec wykładu → Zakończ o godzinie* (np. 21:00): o tej godzinie nagranie zostanie zapisane,
+   a aplikacja przełączy się na okno spotkania i naciśnie skrót Teams „Opuść” (**⌘⇧H** na macOS, **Ctrl+Shift+H** na Windows).
+   Na macOS wymaga to jednorazowego uprawnienia *Ustawienia systemowe → Prywatność i ochrona → Dostępność* dla LectureCapture.
+   Godzinę można zmienić lub wyłączyć w trakcie nagrywania.
 
 Podczas nagrywania: *Pauza/Wznów*, *Zapisz slajd* (lub globalnie **⌘⇧S / Ctrl+Shift+S**), *Zatrzymaj i zapisz*.
 Wskaźnik nagrywania: czerwona kropka w aplikacji, tytuł okna oraz licznik przy ikonie w pasku menu.
@@ -130,7 +139,11 @@ Implementacje platformowe są wymienne – rekorder zna tylko traity `VideoSourc
 2. Analizowany jest tylko zaznaczony obszar, zmniejszony do 320 px szerokości (skala szarości) – zapis zawsze w natywnej rozdzielczości.
 3. Różnica pikseli z tolerancją przesunięcia ±1 px (szum kompresji Teams, drżenie skalowania) → siatka bloków →
    spójne komponenty. Zmiany mieszczące się w 2×2 blokach (kursor, drobne kontrolki) są ignorowane; maski użytkownika wykluczają obszary.
-4. Zmiana musi być stabilna przez `stable_frames` próbek (debounce); niestabilna treść (wideo) zapisywana po `max_unstable_ms`.
+4. Zmiana musi być stabilna przez `stable_frames` próbek (debounce); niestabilna treść zapisywana po `max_unstable_ms`.
+   **Filtr kamery:** kolejne klatki są też porównywane ze sobą; bloki, które zmieniają się przez ~2 s (prowadzący na kamerce,
+   wideo), są maskowane, dopóki nie znieruchomieją na 4 s. Gdy ruch obejmuje ≥ 60% obrazu (sama kamera, bez slajdu),
+   nic nie jest zapisywane; zmiana ograniczona do niedawno ruchomych obszarów (prowadzący zastygł w nowej pozycji) jest ignorowana.
+   Slajd pokazany po kamerze jest wykrywany z czasem jego pojawienia się. Wyłączysz to w *Ustawieniach* („Ignoruj kamerę i ruchome obszary”).
 5. Nowy obraz porównywany z galerią (dHash + porównanie pikselowe) → powrót do slajdu = nowe wystąpienie na osi czasu, ten sam plik.
 6. Zmiana czysto addytywna na tle = etap stopniowego ujawniania → *merge* (slajd aktualizowany do pełnej wersji) lub *separate*.
 
@@ -150,13 +163,14 @@ Wszystkie progi: *Ustawienia → Wykrywanie slajdów* (pełna lista w `DetectorC
 * Manifest zapisywany atomowo po każdym zdarzeniu + heartbeat co 15 s; journal `.lc/events.jsonl`.
 * Po awarii/zamknięciu: przy następnym starcie wykład jest automatycznie odzyskiwany (zamknięta oś czasu,
   sieroce PNG dołączone, uszkodzony koniec Ogg pominięty), a niedokończona transkrypcja wznawiana.
-* Obsługa: utrata okna (zamknięte spotkanie) → automatyczne wznowienie, gdy okno wróci; utrata/zmiana urządzenia audio;
+* Obsługa: utrata okna (zamknięte spotkanie) → automatyczne wznowienie, gdy okno wróci; utrata/zmiana urządzenia audio
+  (chwilowe nieciągłości bufora WASAPI loopback nie są już raportowane jako „Utracono audio”);
   uśpienie (luka wypełniana ciszą, oś czasu zachowana); brak sygnału → ostrzeżenie i wpis w „Braki danych”; mało miejsca na dysku.
 
 ## Testy
 
 ```bash
-cargo test -p lc-core          # 52 testy: jednostkowe + integracyjne pipeline'u (syntetyczne źródła)
+cargo test -p lc-core          # 59 testów: jednostkowe + integracyjne pipeline'u (syntetyczne źródła)
 cargo test -p lc-whisper       # + prawdziwa transkrypcja (wymaga pobranego modelu `base`, inaczej SKIPPED)
 npm run build                  # typecheck + build UI
 ```
@@ -175,7 +189,8 @@ CLI (wymaga uprawnienia „Nagrywanie ekranu” dla terminala):
 * Jakość transkrypcji zależy od modelu: *Base* myli się w polskiej odmianie i łączy słowa; dla wykładów polecany *Large v3 Turbo*.
 * Zmiana rozmiaru okna w trakcie nagrywania jest obsługiwana (przechwytywanie dostosowuje się do natywnej rozdzielczości),
   ale zaznaczony obszar jest względny – przy dużej zmianie proporcji okna zaznacz obszar ponownie.
-* Prezentacja z ciągłą animacją/wideo zapisywana jest co `max_unstable_ms` (domyślnie 15 s).
+* Filtr kamery nie zapisuje automatycznie slajdu, który w większości jest odtwarzanym wideo – użyj *Zapisz slajd* (⌘⇧S).
+  Pierwszy widok kamery na samym początku nagrania może zostać zapisany jako jeden slajd (filtr uczy się ruchu przez ~2 s).
 * Echo: przy włączonym mikrofonie bez słuchawek głos prowadzącego trafi do nagrania dwukrotnie.
 * Zamknięcie klapy MacBooka usypia system – nagrywanie wznowi się po wybudzeniu, a przerwa zostanie oznaczona.
 * Windows: nie testowano na fizycznym sprzęcie; ramka przechwytywania WGC może być widoczna na Windows 10.

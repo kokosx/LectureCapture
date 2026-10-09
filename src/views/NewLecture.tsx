@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { AppWindow, Monitor, RefreshCw, FolderOpen, Volume2, Mic, Play, Crop, Info, Download } from "lucide-react";
+import { AppWindow, Monitor, RefreshCw, FolderOpen, Volume2, Mic, Play, Crop, Info, Download, Clock, LogOut, AlertTriangle } from "lucide-react";
 import {
-  api, AudioDevices, AudioSelection, AudioTestSource, CaptureTarget, LANGUAGES, NormRect, SourceList,
+  api, AudioDevices, AudioSelection, AudioTestSource, AutoStopInfo, CaptureTarget, LANGUAGES, NormRect, SourceList, SubjectInfo,
 } from "../lib/api";
 import { errorText, fmtBytes } from "../lib/format";
 import { Badge, Button, Card, Field, Input, LevelMeter, Segmented, Select, Toggle, useToast, cx } from "../components/ui";
@@ -11,10 +11,72 @@ import { PermissionRow } from "./Consent";
 import { useModels } from "./Models";
 import type { Nav } from "../App";
 
-export function NewLecture({ nav, onStarted }: { nav: Nav; onStarted: () => void }) {
+const NEW_SUBJECT = "\u0000new";
+
+/** Scheduled end + "leave the Teams meeting" options (shared with the recording view). */
+export function AutoStopFields({ enabled, setEnabled, time, setTime, leave, setLeave, info }: {
+  enabled: boolean; setEnabled: (v: boolean) => void; time: string; setTime: (v: string) => void;
+  leave: boolean; setLeave: (v: boolean) => void; info: AutoStopInfo | null;
+}) {
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <Toggle
+            checked={enabled}
+            onChange={setEnabled}
+            label={<span className="flex items-center gap-1.5"><Clock size={14} /> Zakończ o godzinie</span>}
+            description="Nagranie zostanie zatrzymane i zapisane automatycznie."
+          />
+        </div>
+        <input
+          type="time"
+          value={time}
+          disabled={!enabled}
+          onChange={(e) => setTime(e.target.value)}
+          className="h-8 px-2 rounded-md bg-panel border border-line text-fg tabular-nums outline-none focus:border-accent disabled:opacity-45"
+        />
+      </div>
+      {enabled && (
+        <div className="pl-11 space-y-2">
+          <Toggle
+            checked={leave}
+            onChange={setLeave}
+            label={<span className="flex items-center gap-1.5"><LogOut size={14} /> Opuść spotkanie Teams</span>}
+            description={`Po zapisaniu aplikacja przełączy się na okno spotkania i naciśnie ${info?.shortcut ?? "skrót"} („Opuść”).`}
+          />
+          {leave && info && !info.can_send_keys && (
+            <div className="flex items-start gap-2 rounded-lg bg-amber-500/5 border border-amber-500/30 p-2.5 text-[12px]">
+              <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                Aby wysłać skrót do Teams, LectureCapture potrzebuje uprawnienia <b>Dostępność</b> (Ustawienia systemowe → Prywatność i ochrona → Dostępność).
+                <div className="mt-1.5"><Button size="sm" onClick={() => api.openKeyPermissionSettings()}>Otwórz ustawienia</Button></div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function defaultEndTime(): string {
+  const d = new Date(Date.now() + 90 * 60_000);
+  d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: Nav; onStarted: () => void; subject?: string }) {
   const toast = useToast();
   const s = nav.settings;
   const [title, setTitle] = useState("");
+  const [subjects, setSubjects] = useState<SubjectInfo[]>([]);
+  const [subject, setSubject] = useState<string>(initialSubject ?? s.last_subject ?? "");
+  const [newSubject, setNewSubject] = useState("");
+  const [stopEnabled, setStopEnabled] = useState(false);
+  const [stopAt, setStopAt] = useState(defaultEndTime);
+  const [leave, setLeave] = useState(s.auto_leave_meeting);
+  const [autoInfo, setAutoInfo] = useState<AutoStopInfo | null>(null);
   const [outputDir, setOutputDir] = useState(s.lectures_root);
   const [free, setFree] = useState<number | null>(null);
   const [platform, setPlatform] = useState("macos");
@@ -62,6 +124,8 @@ export function NewLecture({ nav, onStarted }: { nav: Nav; onStarted: () => void
     loadSources();
     api.listAudioDevices().then(setDevices);
     api.systemInfo().then((i) => setPlatform(i.platform));
+    api.listSubjects().then(setSubjects).catch(() => {});
+    api.getAutoStop().then(setAutoInfo).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -114,13 +178,29 @@ export function NewLecture({ nav, onStarted }: { nav: Nav; onStarted: () => void
     }
   };
 
+  // remembered subject may have been removed meanwhile
+  useEffect(() => {
+    if (subject && subject !== NEW_SUBJECT && subjects.length && !subjects.some((x) => x.name === subject) && initialSubject === undefined) setSubject("");
+  }, [subjects]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const subjectName = subject === NEW_SUBJECT ? newSubject.trim() : subject;
+  const sep = outputDir.includes("\\") ? "\\" : "/";
+  const savePath = subjectName ? `${outputDir.replace(/[\\/]+$/, "")}${sep}${subjectName}` : outputDir;
+
   const start = async () => {
     if (!target) return;
+    if (subject === NEW_SUBJECT && !subjectName) {
+      toast("Podaj nazwę nowego przedmiotu.", "error");
+      return;
+    }
     setStarting(true);
     try {
       await api.startRecording({
-        title: title.trim() || "Wykład",
+        title: title.trim() || subjectName || "Wykład",
         output_dir: outputDir,
+        subject: subjectName || null,
+        stop_at: stopEnabled ? stopAt : null,
+        leave_meeting: leave,
         target,
         crop,
         audio,
@@ -209,10 +289,27 @@ export function NewLecture({ nav, onStarted }: { nav: Nav; onStarted: () => void
         <div className="space-y-4">
           <Card title="Wykład">
             <div className="space-y-3">
-              <Field label="Nazwa przedmiotu / wykładu">
-                <Input autoFocus placeholder="np. Algorytmy i struktury danych" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Field label="Przedmiot (folder)">
+                <Select
+                  value={subject}
+                  onChange={setSubject}
+                  options={[
+                    { value: "", label: "Bez przedmiotu" },
+                    ...subjects.map((x) => ({ value: x.name, label: x.name })),
+                    ...(subject && subject !== NEW_SUBJECT && !subjects.some((x) => x.name === subject) ? [{ value: subject, label: subject }] : []),
+                    { value: NEW_SUBJECT, label: "+ Nowy przedmiot…" },
+                  ]}
+                />
               </Field>
-              <Field label="Lokalizacja zapisu" hint={<>Wolne miejsce: {fmtBytes(free)}</>}>
+              {subject === NEW_SUBJECT && (
+                <Field label="Nazwa nowego przedmiotu">
+                  <Input autoFocus placeholder="np. Algorytmy i struktury danych" value={newSubject} onChange={(e) => setNewSubject(e.target.value)} />
+                </Field>
+              )}
+              <Field label="Temat wykładu">
+                <Input autoFocus={subject !== NEW_SUBJECT} placeholder={subjectName ? `np. Wykład 3 – drzewa binarne` : "np. Algorytmy i struktury danych"} value={title} onChange={(e) => setTitle(e.target.value)} />
+              </Field>
+              <Field label="Lokalizacja zapisu" hint={<span className="break-all">Zapis do: {savePath} · wolne: {fmtBytes(free)}</span>}>
                 <div className="flex gap-2">
                   <Input value={outputDir} onChange={(e) => setOutputDir(e.target.value)} className="flex-1 text-[12px]" />
                   <Button
@@ -225,6 +322,18 @@ export function NewLecture({ nav, onStarted }: { nav: Nav; onStarted: () => void
                 </div>
               </Field>
             </div>
+          </Card>
+
+          <Card title="Koniec wykładu">
+            <AutoStopFields
+              enabled={stopEnabled}
+              setEnabled={setStopEnabled}
+              time={stopAt}
+              setTime={setStopAt}
+              leave={leave}
+              setLeave={setLeave}
+              info={autoInfo}
+            />
           </Card>
 
           <Card title="Dźwięk">

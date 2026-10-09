@@ -1,6 +1,7 @@
 //! LectureCapture desktop app (Tauri 2): commands exposed to the React UI.
 
 mod library;
+mod meeting;
 pub mod selftest;
 mod settings;
 
@@ -63,6 +64,7 @@ struct AppState {
     downloads: Arc<Mutex<HashMap<String, DownloadStatus>>>,
     download_cancel: Mutex<HashMap<String, Arc<AtomicBool>>>,
     recoveries: Mutex<Vec<RecoveryReport>>,
+    auto_stop: Mutex<Option<meeting::AutoStop>>,
 }
 
 impl AppState {
@@ -388,6 +390,14 @@ fn delete_model(state: State<AppState>, id: String) -> CmdResult<()> {
 struct StartRequest {
     title: String,
     output_dir: Option<String>,
+    /// Subject folder inside the output directory (created when missing).
+    #[serde(default)]
+    subject: Option<String>,
+    /// Finish automatically at this local time (`HH:MM`).
+    #[serde(default)]
+    stop_at: Option<String>,
+    #[serde(default)]
+    leave_meeting: bool,
     target: CaptureTarget,
     crop: Option<NormRect>,
     audio: AudioSelection,
@@ -410,7 +420,27 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
         return Err("Brak uprawnienia „Nagrywanie ekranu i dźwięku systemowego”. Nadaj je w Ustawieniach systemowych → Prywatność i ochrona, a następnie uruchom aplikację ponownie.".into());
     }
     let title = if req.title.trim().is_empty() { "Wykład".to_string() } else { req.title.trim().to_string() };
-    let parent = req.output_dir.as_ref().filter(|s| !s.trim().is_empty()).map(PathBuf::from).unwrap_or(settings.lectures_root.clone());
+    let base = req.output_dir.as_ref().filter(|s| !s.trim().is_empty()).map(PathBuf::from).unwrap_or(settings.lectures_root.clone());
+    let subject = match req.subject.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(s) => Some(library::subject_name(s).map_err(err)?),
+        None => None,
+    };
+    let parent = match &subject {
+        Some(s) => base.join(s),
+        None => base.clone(),
+    };
+    let auto_stop = match req.stop_at.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(hhmm) => {
+            let at = meeting::next_occurrence(hhmm, chrono::Local::now()).map_err(err)?;
+            Some(meeting::AutoStop {
+                at: at.to_rfc3339(),
+                at_time: at,
+                leave_meeting: req.leave_meeting,
+                window: meeting::MeetingWindow::from_target(&req.target),
+            })
+        }
+        None => None,
+    };
     let mut audio_cfg = settings.audio.clone();
     audio_cfg.capture_system = req.audio.capture_system;
     audio_cfg.capture_microphone = req.audio.capture_microphone;
@@ -451,6 +481,7 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
     let status = rec.status();
     *state.recorder.lock() = Some(rec);
     *state.rec_started.lock() = Some(Instant::now());
+    *state.auto_stop.lock() = auto_stop;
 
     // remember choices
     settings.last_target = Some(req.target);
@@ -459,9 +490,11 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
     settings.audio.capture_microphone = req.audio.capture_microphone;
     settings.audio.microphone_device = req.audio.microphone_device;
     settings.transcription = tcfg;
-    if parent != settings.lectures_root && !settings.known_roots.contains(&parent) {
-        settings.known_roots.push(parent);
+    if base != settings.lectures_root && !settings.known_roots.contains(&base) {
+        settings.known_roots.push(base);
     }
+    settings.last_subject = subject;
+    settings.auto_leave_meeting = req.leave_meeting;
     let keep = settings.keep_awake;
     let shortcut = settings.capture_shortcut.clone();
     *state.settings.lock() = settings;
@@ -529,11 +562,17 @@ fn set_microphone_enabled(state: State<AppState>, enabled: bool) {
 }
 
 #[tauri::command]
-async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> CmdResult<String> {
+async fn stop_recording(app: AppHandle) -> CmdResult<String> {
+    stop_now(&app).await
+}
+
+async fn stop_now(app: &AppHandle) -> CmdResult<String> {
+    let state = app.state::<AppState>();
     let Some(rec) = state.recorder.lock().take() else {
         return Err("Nagrywanie nie jest aktywne.".into());
     };
     *state.rec_started.lock() = None;
+    *state.auto_stop.lock() = None;
     let _ = app.global_shortcut().unregister_all();
     let outcome = tauri::async_runtime::spawn_blocking(move || rec.stop()).await.map_err(err)?.map_err(err)?;
     *state.keep_awake.lock() = None;
@@ -541,8 +580,102 @@ async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> CmdResult
     if let Some(t) = outcome.transcription {
         state.services.lock().insert(path.clone(), t);
     }
-    allow_dir(&app, &outcome.lecture_dir);
+    allow_dir(app, &outcome.lecture_dir);
     Ok(path)
+}
+
+// ---------------------------------------------------------------- scheduled end
+
+#[derive(Serialize)]
+struct AutoStopInfo {
+    schedule: Option<meeting::AutoStop>,
+    shortcut: &'static str,
+    can_send_keys: bool,
+}
+
+fn auto_stop_info(state: &AppState) -> AutoStopInfo {
+    AutoStopInfo { schedule: state.auto_stop.lock().clone(), shortcut: meeting::shortcut_label(), can_send_keys: meeting::can_send_keys() }
+}
+
+#[tauri::command]
+fn get_auto_stop(state: State<AppState>) -> AutoStopInfo {
+    auto_stop_info(&state)
+}
+
+/// Change (or clear with `stop_at = None`) the scheduled end of the running recording.
+#[tauri::command]
+fn set_auto_stop(state: State<AppState>, stop_at: Option<String>, leave_meeting: bool) -> CmdResult<AutoStopInfo> {
+    let window = {
+        let rec = state.recorder.lock();
+        if rec.is_none() {
+            return Err("Nagrywanie nie jest aktywne.".into());
+        }
+        state.settings.lock().last_target.as_ref().map(meeting::MeetingWindow::from_target).unwrap_or_default()
+    };
+    let new = match stop_at.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(hhmm) => {
+            let at = meeting::next_occurrence(hhmm, chrono::Local::now()).map_err(err)?;
+            Some(meeting::AutoStop { at: at.to_rfc3339(), at_time: at, leave_meeting, window })
+        }
+        None => None,
+    };
+    *state.auto_stop.lock() = new;
+    state.settings.lock().auto_leave_meeting = leave_meeting;
+    state.save_settings();
+    Ok(auto_stop_info(&state))
+}
+
+#[tauri::command]
+fn open_key_permission_settings() {
+    meeting::open_key_permission_settings();
+}
+
+#[derive(Clone, Serialize)]
+struct AutoStopped {
+    path: Option<String>,
+    error: Option<String>,
+    left_meeting: bool,
+    leave_error: Option<String>,
+}
+
+/// Background watcher: when the scheduled time is reached, stop and save the
+/// recording, then (optionally) leave the Teams meeting.
+fn spawn_auto_stop_watcher(app: AppHandle) {
+    std::thread::Builder::new()
+        .name("lc-auto-stop".into())
+        .spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(500));
+            let state = app.state::<AppState>();
+            let due = {
+                let mut a = state.auto_stop.lock();
+                match a.as_ref() {
+                    Some(s) if chrono::Local::now() >= s.at_time => a.take(),
+                    _ => None,
+                }
+            };
+            let Some(job) = due else { continue };
+            if state.recorder.lock().is_none() {
+                continue;
+            }
+            log::info!("scheduled end reached ({}), stopping recording", job.at);
+            let _ = app.emit("auto-stop-started", ());
+            let (path, error) = match tauri::async_runtime::block_on(stop_now(&app)) {
+                Ok(p) => (Some(p), None),
+                Err(e) => (None, Some(e)),
+            };
+            let (mut left_meeting, mut leave_error) = (false, None);
+            if job.leave_meeting {
+                match meeting::leave_meeting(&job.window) {
+                    Ok(()) => left_meeting = true,
+                    Err(e) => {
+                        log::warn!("leave meeting: {e:#}");
+                        leave_error = Some(format!("{e:#}"));
+                    }
+                }
+            }
+            let _ = app.emit("auto-stopped", AutoStopped { path, error, left_meeting, leave_error });
+        })
+        .expect("spawn auto-stop watcher");
 }
 
 // ---------------------------------------------------------------- library
@@ -557,9 +690,109 @@ async fn list_lectures(app: AppHandle, state: State<'_, AppState>) -> CmdResult<
 }
 
 #[tauri::command]
-async fn get_lecture(app: AppHandle, path: String) -> CmdResult<library::LectureDetail> {
+async fn get_lecture(app: AppHandle, state: State<'_, AppState>, path: String) -> CmdResult<library::LectureDetail> {
     allow_dir(&app, Path::new(&path));
-    tauri::async_runtime::spawn_blocking(move || library::detail(Path::new(&path))).await.map_err(err)?.map_err(err)
+    let roots = state.settings.lock().roots();
+    tauri::async_runtime::spawn_blocking(move || library::detail(Path::new(&path), &roots)).await.map_err(err)?.map_err(err)
+}
+
+#[tauri::command]
+fn list_subjects(state: State<AppState>) -> Vec<library::SubjectInfo> {
+    library::subjects(&state.settings.lock().roots())
+}
+
+#[tauri::command]
+fn create_subject(state: State<AppState>, name: String) -> CmdResult<library::SubjectInfo> {
+    let name = library::subject_name(&name).map_err(err)?;
+    let dir = state.settings.lock().lectures_root.join(&name);
+    if dir.join("manifest.json").exists() {
+        return Err("Taka nazwa jest zajęta przez folder wykładu.".into());
+    }
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    Ok(library::SubjectInfo { name, path: dir.to_string_lossy().into_owned(), lectures: 0 })
+}
+
+fn subject_dirs_named(state: &AppState, name: &str) -> Vec<PathBuf> {
+    state.settings.lock().roots().iter().map(|r| r.join(name)).filter(|d| d.is_dir() && !d.join("manifest.json").exists()).collect()
+}
+
+fn subject_busy(state: &AppState, dirs: &[PathBuf]) -> bool {
+    let in_dirs = |p: &str| dirs.iter().any(|d| Path::new(p).starts_with(d));
+    state.services.lock().iter().any(|(p, s)| !s.is_finished() && in_dirs(p))
+        || state.jobs.lock().iter().any(|(p, j)| j.state == "running" && in_dirs(p))
+        || state.recorder.lock().as_ref().is_some_and(|r| dirs.iter().any(|d| r.lecture_dir().starts_with(d)))
+}
+
+#[tauri::command]
+fn rename_subject(app: AppHandle, state: State<AppState>, name: String, new_name: String) -> CmdResult<()> {
+    let new_name = library::subject_name(&new_name).map_err(err)?;
+    if new_name == name {
+        return Ok(());
+    }
+    let dirs = subject_dirs_named(&state, &name);
+    if subject_busy(&state, &dirs) {
+        return Err("Poczekaj na zakończenie nagrywania/transkrypcji w tym przedmiocie.".into());
+    }
+    for d in dirs {
+        let dest = d.with_file_name(&new_name);
+        if dest.exists() {
+            // merge into an existing subject of that name
+            for e in std::fs::read_dir(&d).map_err(err)?.flatten() {
+                if e.path().join("manifest.json").is_file() {
+                    library::move_lecture(&e.path(), &dest).map_err(err)?;
+                }
+            }
+            let _ = std::fs::remove_dir(&d);
+        } else {
+            std::fs::rename(&d, &dest).map_err(err)?;
+        }
+        allow_dir(&app, &dest);
+    }
+    if state.settings.lock().last_subject.as_deref() == Some(name.as_str()) {
+        state.settings.lock().last_subject = Some(new_name);
+        state.save_settings();
+    }
+    Ok(())
+}
+
+/// Removes an empty subject folder (lectures are never deleted here).
+#[tauri::command]
+fn delete_subject(state: State<AppState>, name: String) -> CmdResult<()> {
+    for d in subject_dirs_named(&state, &name) {
+        let has_lectures = std::fs::read_dir(&d).map_err(err)?.flatten().any(|e| e.path().join("manifest.json").is_file());
+        if has_lectures {
+            return Err("Przedmiot zawiera wykłady – najpierw przenieś je lub usuń.".into());
+        }
+        // only harmless leftovers (e.g. .DS_Store) may remain
+        for e in std::fs::read_dir(&d).map_err(err)?.flatten() {
+            let p = e.path();
+            if p.is_file() && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+        std::fs::remove_dir(&d).map_err(|_| "Folder przedmiotu zawiera inne pliki – usuń je ręcznie.".to_string())?;
+    }
+    Ok(())
+}
+
+/// Move a lecture into a subject (`None` = no subject). Returns the new path.
+#[tauri::command]
+fn move_lecture(app: AppHandle, state: State<AppState>, path: String, subject: Option<String>) -> CmdResult<String> {
+    if busy(&state, &path) {
+        return Err("Poczekaj na zakończenie nagrywania/transkrypcji tego wykładu.".into());
+    }
+    let roots = state.settings.lock().roots();
+    let lecture = PathBuf::from(&path);
+    // stay in the same library root
+    let root = roots.iter().find(|r| lecture.starts_with(r)).cloned().unwrap_or_else(|| state.settings.lock().lectures_root.clone());
+    let dest_parent = match subject.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(s) => root.join(library::subject_name(s).map_err(err)?),
+        None => root,
+    };
+    let new = library::move_lecture(&lecture, &dest_parent).map_err(err)?;
+    state.services.lock().remove(&path);
+    allow_dir(&app, &new);
+    Ok(new.to_string_lossy().into_owned())
 }
 
 fn busy(state: &AppState, path: &str) -> bool {
@@ -733,10 +966,8 @@ fn take_recoveries(state: State<AppState>) -> Vec<RecoveryReport> {
 
 fn recover_on_startup(state: &AppState) {
     let roots = state.settings.lock().roots();
-    for root in roots {
-        let Ok(rd) = std::fs::read_dir(&root) else { continue };
-        for e in rd.flatten() {
-            let p = e.path();
+    {
+        for p in library::lecture_dirs(&roots) {
             if recovery::needs_recovery(&p) {
                 match recovery::recover(&p) {
                     Ok(r) => {
@@ -861,12 +1092,14 @@ pub fn run() {
                 downloads: Arc::new(Mutex::new(HashMap::new())),
                 download_cancel: Mutex::new(HashMap::new()),
                 recoveries: Mutex::new(Vec::new()),
+                auto_stop: Mutex::new(None),
             };
             recover_on_startup(&state);
             for r in state.settings.lock().roots() {
                 allow_dir(app.handle(), &r);
             }
             app.manage(state);
+            spawn_auto_stop_watcher(app.handle().clone());
             if let Err(e) = setup_tray(app) {
                 log::warn!("tray: {e}");
             }
@@ -916,6 +1149,14 @@ pub fn run() {
             cancel_transcription,
             resume_transcription,
             take_recoveries,
+            list_subjects,
+            create_subject,
+            rename_subject,
+            delete_subject,
+            move_lecture,
+            get_auto_stop,
+            set_auto_stop,
+            open_key_permission_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building LectureCapture")

@@ -33,3 +33,6 @@ chrono.workspace = true
 base64 = "0.22"
 dirs = "6"
 keepawake = "0.6"
+
+[dev-dependencies]
+tempfile.workspace = true

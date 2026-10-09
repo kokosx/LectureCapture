@@ -68,7 +68,7 @@ export function SettingsView({ nav }: { nav: Nav }) {
             <Field label="Ignoruj zmiany mniejsze niż (bloki)" hint="Kursor i drobne elementy UI mieszczą się w małym obszarze.">
               <Num value={s.detector.cursor_max_blocks} min={1} max={8} onChange={(v) => det({ cursor_max_blocks: v })} suffix="× blok" />
             </Field>
-            <Field label="Zapis niestabilnej treści po" hint="Np. wideo lub animacja na slajdzie.">
+            <Field label="Zapis niestabilnej treści po" hint="Np. animacja na slajdzie (ruchome obszary są ignorowane, jeśli włączono filtr kamery).">
               <Num value={s.detector.max_unstable_ms / 1000} min={3} max={120} onChange={(v) => det({ max_unstable_ms: v * 1000 })} suffix="s" />
             </Field>
             <Field label="Stopniowe ujawnianie punktów">
@@ -80,6 +80,14 @@ export function SettingsView({ nav }: { nav: Nav }) {
           </div>
           <div className="mt-4">
             <Toggle checked={s.detector.ignore_blank} onChange={(v) => det({ ignore_blank: v })} label="Ignoruj puste (czarne/jednolite) klatki" description="Np. gdy prowadzący przestaje udostępniać ekran." />
+          </div>
+          <div className="mt-3">
+            <Toggle
+              checked={s.detector.motion_filter}
+              onChange={(v) => det({ motion_filter: v })}
+              label="Ignoruj kamerę i ruchome obszary"
+              description="Obszary, które ciągle się zmieniają (prowadzący na kamerce, wideo), nie tworzą nowych slajdów. Gdy widać tylko kamerę – nic nie jest zapisywane."
+            />
           </div>
         </Card>
 

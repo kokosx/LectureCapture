@@ -77,6 +77,14 @@ fn find_device(sel: &DeviceSel) -> Result<cpal::Device> {
     default.ok_or_else(|| anyhow!("brak domyślnego urządzenia audio"))
 }
 
+/// Whether the stream is gone and must be rebuilt. WASAPI loopback reports a data
+/// discontinuity (`Xrun`) whenever playback starts after silence – the stream keeps
+/// running, so treating that as a lost device made "audio lost / restored" pairs
+/// appear every few minutes.
+fn is_fatal(e: &cpal::Error) -> bool {
+    !matches!(e.kind(), cpal::ErrorKind::Xrun | cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied)
+}
+
 fn build_stream(
     sel: &DeviceSel,
     kind: SourceKind,
@@ -94,8 +102,12 @@ fn build_stream(
     let stream_cfg = cfg.config();
     let err_flag = failed.clone();
     let on_err = move |e: cpal::Error| {
-        log::warn!("audio stream error: {e}");
-        err_flag.store(true, Ordering::SeqCst);
+        if is_fatal(&e) {
+            log::warn!("audio stream error: {e}");
+            err_flag.store(true, Ordering::SeqCst);
+        } else {
+            log::debug!("audio stream notice: {e}");
+        }
     };
     let send = move |mono: Vec<f32>| {
         // never block the realtime audio thread

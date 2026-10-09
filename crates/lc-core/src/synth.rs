@@ -49,6 +49,36 @@ pub fn slide(width: u32, height: u32, seed: u64, lines: u32) -> Frame {
     f
 }
 
+/// Webcam-like frame: a wall with a shelf and a person whose head/torso are offset
+/// by (`dx`, `dy`) px and whose arm is raised by `arm` px – for motion tests.
+pub fn webcam(width: u32, height: u32, dx: i32, dy: i32, arm: u32) -> Frame {
+    let mut f = Frame::solid(width, height, [168, 160, 150]);
+    // wall shading + shelf with books
+    for i in 0..8 {
+        f.fill_rect(0, i * height / 8, width, height / 8, [168 - i as u8 * 6, 160 - i as u8 * 6, 150 - i as u8 * 5]);
+    }
+    f.fill_rect(width / 20, height / 6, width / 4, height / 40, [90, 60, 40]);
+    for b in 0..9 {
+        let c = [[150, 40, 40], [40, 90, 150], [60, 130, 70]][b % 3];
+        f.fill_rect(width / 20 + b as u32 * width / 40, height / 6 - height / 12, width / 50, height / 12, c);
+    }
+    let cx = (width as i32 / 2 + dx).max(0) as u32;
+    let cy = (height as i32 / 3 + dy).max(0) as u32;
+    let r = height / 7;
+    // torso
+    f.fill_rect(cx.saturating_sub(r * 2), cy + r, r * 4, height, [40, 50, 75]);
+    // arm
+    f.fill_rect(cx + r * 2, (cy + r * 2).saturating_sub(arm), r / 2, r * 2, [40, 50, 75]);
+    // head (ellipse) with hair
+    for yy in 0..(2 * r) {
+        let y = yy as f32 - r as f32;
+        let half = ((r * r) as f32 - y * y).max(0.0).sqrt() * 0.8;
+        let color = if yy < r / 2 { [50, 35, 25] } else { [215, 170, 145] };
+        f.fill_rect(cx.saturating_sub(half as u32), (cy + yy).saturating_sub(r), (half * 2.0) as u32, 1, color);
+    }
+    f
+}
+
 /// Draws a small arrow-like cursor (about 12×18 px at 1280×720 scale).
 pub fn with_cursor(frame: &Frame, x: u32, y: u32) -> Frame {
     let mut f = frame.clone();

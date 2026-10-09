@@ -4,9 +4,9 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeft, FolderOpen, ClipboardCopy, FileArchive, RotateCw, ChevronLeft, ChevronRight, Trash2, Clock, Layers,
-  AlertTriangle, Pencil, Check, X, FileText, Play,
+  AlertTriangle, Pencil, Check, X, FileText, Play, Folder,
 } from "lucide-react";
-import { api, fileSrc, LANGUAGES, LectureDetail, TranscriptionInfo, Part } from "../lib/api";
+import { api, fileSrc, LANGUAGES, LectureDetail, TranscriptionInfo, Part, SubjectInfo } from "../lib/api";
 import { errorText, fmtBytes, fmtDateTime, fmtDuration, fmtMs, parseTime, plural, transcriptionLabel } from "../lib/format";
 import { Badge, Button, Card, Empty, Input, Modal, Progress, Segmented, Select, Toggle, useToast, cx } from "../components/ui";
 import { transcriptionTone } from "./Dashboard";
@@ -56,6 +56,11 @@ export function LectureDetailView({ nav, path }: { nav: Nav; path: string }) {
   const [busy, setBusy] = useState(false);
   const { models } = useModels();
   const wasRunning = useRef(false);
+  const [subjects, setSubjects] = useState<SubjectInfo[]>([]);
+
+  useEffect(() => {
+    api.listSubjects().then(setSubjects).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -130,9 +135,37 @@ export function LectureDetailView({ nav, path }: { nav: Nav; path: string }) {
 
   return (
     <div className="max-w-[1240px] mx-auto px-8 pb-10">
-      <button onClick={() => nav.go({ name: "dashboard" })} className="flex items-center gap-1 text-muted hover:text-fg text-[12.5px] mb-3">
-        <ArrowLeft size={14} /> Wykłady
-      </button>
+      <div className="flex items-center gap-3 mb-3">
+        <button onClick={() => nav.go({ name: "dashboard" })} className="flex items-center gap-1 text-muted hover:text-fg text-[12.5px]">
+          <ArrowLeft size={14} /> Wykłady
+        </button>
+        <div className="ml-auto flex items-center gap-2 text-[12px] text-muted">
+          <Folder size={13} />
+          <span>Przedmiot:</span>
+          <Select
+            className="h-7 w-60 text-[12.5px]"
+            disabled={busy || running}
+            value={d.subject ?? ""}
+            onChange={async (v) => {
+              setBusy(true);
+              try {
+                const np = await api.moveLecture(path, v || null);
+                toast(v ? `Przeniesiono do „${v}”.` : "Wykład nie jest już przypisany do przedmiotu.", "success");
+                nav.go({ name: "lecture", path: np });
+              } catch (e) {
+                toast(errorText(e), "error");
+              } finally {
+                setBusy(false);
+              }
+            }}
+            options={[
+              { value: "", label: "Bez przedmiotu" },
+              ...subjects.map((x) => ({ value: x.name, label: x.name })),
+              ...(d.subject && !subjects.some((x) => x.name === d.subject) ? [{ value: d.subject, label: d.subject }] : []),
+            ]}
+          />
+        </div>
+      </div>
       <div className="flex items-start gap-4 mb-4">
         <div className="min-w-0 flex-1">
           {editTitle !== null ? (
