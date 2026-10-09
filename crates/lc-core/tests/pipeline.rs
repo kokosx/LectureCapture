@@ -192,7 +192,7 @@ fn full_pipeline_scenario() {
     assert!(lecture.contains("pauza"));
     assert!(lecture.contains("| Liczba slajdów | 3 (wyświetleń na osi czasu: 5) |"));
     let prompt = std::fs::read_to_string(s.dir.abs("PROMPT.md")).unwrap();
-    for needle in ["manifest.json", "WSZYSTKIE 3 slajdy", "transcript/full.md", "notes.md", "summary.md", "exam-questions.md", "flashcards.md", "Nie wymyślaj"] {
+    for needle in ["manifest.json", "WSZYSTKIE slajdy (3)", "transcript/full.md", "notes.md", "summary.md", "exam-questions.md", "flashcards.md", "Nie wymyślaj"] {
         assert!(prompt.contains(needle), "PROMPT.md lacks {needle}");
     }
     let by_slide = std::fs::read_to_string(s.dir.abs("transcript/by-slide.md")).unwrap();

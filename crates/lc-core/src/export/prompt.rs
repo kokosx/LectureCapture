@@ -95,7 +95,7 @@ przygotowanie profesjonalnych, rzetelnych materiałów do nauki **w języku pols
     s.push_str("1. **Przeczytaj `manifest.json` i `lecture.md`**, żeby poznać strukturę wykładu, listę slajdów, oś czasu i ewentualne braki danych.\n");
     let _ = writeln!(
         s,
-        "2. **Przeanalizuj WSZYSTKIE {} slajdy jako obrazy.** Otwórz i obejrzyj każdy plik `slides/NNN.png` – odczytaj tekst, wzory, tabele, wykresy, diagramy i kod. Nie wnioskuj o treści z nazw plików ani z samej transkrypcji. Jeśli fragment slajdu jest nieczytelny (niska rozdzielczość, rozmycie), napisz to wprost zamiast zgadywać.",
+        "2. **Przeanalizuj WSZYSTKIE slajdy ({}) jako obrazy.** Otwórz i obejrzyj każdy plik `slides/NNN.png` – odczytaj tekst, wzory, tabele, wykresy, diagramy i kod. Nie wnioskuj o treści z nazw plików ani z samej transkrypcji. Jeśli fragment slajdu jest nieczytelny (niska rozdzielczość, rozmycie), napisz to wprost zamiast zgadywać.",
         m.slides.len()
     );
     s.push_str("3. **Przeczytaj pełną transkrypcję** (`transcript/full.md` – cały plik, nie wybrane fragmenty) oraz `transcript/by-slide.md`, aby wiedzieć, co prowadzący mówił przy którym slajdzie.\n");
@@ -133,7 +133,7 @@ przygotowanie profesjonalnych, rzetelnych materiałów do nauki **w języku pols
     s.push_str("## Kontrola końcowa\n\n");
     let _ = writeln!(
         s,
-        "- [ ] Obejrzałem wszystkie {} obrazy slajdów (lista w `manifest.json` → `slides`).",
+        "- [ ] Obejrzałem wszystkie obrazy slajdów ({}; lista w `manifest.json` → `slides`).",
         m.slides.len()
     );
     s.push_str("- [ ] Przeczytałem całą transkrypcję od początku do końca.\n");
@@ -149,4 +149,96 @@ przygotowanie profesjonalnych, rzetelnych materiałów do nauki **w języku pols
         fmt_ms(m.end_ms())
     );
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::manifest::Occurrence;
+
+    #[test]
+    fn long_lectures_are_split_into_batches_covering_everything() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = crate::session::store::NewLecture {
+            title: "Test".into(),
+            capture: CaptureInfo {
+                source: SourceDescriptor { kind: "display".into(), id: None, title: None, app_name: None, width: None, height: None },
+                crop: None,
+                detector: Default::default(),
+                image_format: "png".into(),
+                webp_archive: false,
+            },
+            audio: AudioInfo {
+                file: None,
+                container: "ogg".into(),
+                codec: "opus".into(),
+                sample_rate: 16000,
+                channels: 1,
+                bitrate: 32000,
+                sources: vec![],
+                retention: crate::config::AudioRetention::Keep,
+                duration_ms: None,
+            },
+            transcription: TranscriptionInfo {
+                enabled: false,
+                engine: "x".into(),
+                model: "base".into(),
+                language: "pl".into(),
+                status: TranscriptionStatus::Disabled,
+                chunks_total: 0,
+                chunks_done: 0,
+                chunks_failed: 0,
+                error: None,
+                detected_languages: vec![],
+                completed_at: None,
+            },
+        };
+        let mut s = crate::session::LectureSession::create(dir.path(), spec, chrono::Local::now().fixed_offset()).unwrap();
+        // 50 slides, slide 3 revisited at the end
+        let at = s.at(0);
+        for i in 0..51u64 {
+            let sid = if i == 50 { 3 } else { i as u32 + 1 };
+            s.manifest.timeline.push(Occurrence {
+                id: format!("occ-{i}"),
+                slide_id: sid,
+                start_ms: i * 60_000,
+                end_ms: Some((i + 1) * 60_000),
+                start_at: at,
+                end_at: None,
+            });
+        }
+        s.manifest.lecture.duration_ms = Some(51 * 60_000);
+        let b = batches(&s.manifest);
+        assert_eq!(b.len(), 4);
+        let mut all: Vec<u32> = b.iter().flat_map(|x| x.slide_ids.clone()).collect();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), 50, "every slide in some batch");
+        assert_eq!(b.last().unwrap().end_ms, 51 * 60_000);
+        let data = crate::export::LectureData { records: vec![], assignment: Default::default() };
+        for i in 1..=50 {
+            s.manifest.slides.push(crate::session::manifest::Slide {
+                id: i,
+                file: format!("slides/{i:03}.png"),
+                archive_file: None,
+                sha256: String::new(),
+                dhash: String::new(),
+                width: 1,
+                height: 1,
+                bytes: 0,
+                captured_at: at,
+                captured_ms: 0,
+                trigger: crate::session::manifest::SlideTrigger::Auto,
+                build_of: None,
+                updates: 0,
+                occurrences: vec![],
+                display_start_ms: None,
+                display_end_ms: None,
+            });
+        }
+        let p = prompt_md(&s.manifest, &data);
+        assert!(p.contains("Przetwarzanie partiami"));
+        assert!(p.contains("| 4 |"));
+        assert!(p.contains("WSZYSTKIE slajdy (50)"));
+    }
 }
