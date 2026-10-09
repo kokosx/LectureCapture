@@ -4,9 +4,14 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v0.1.0)"
+        required: true
 
 env:
   CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   bundle:
@@ -17,13 +22,23 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles dmg
+            bundle_dir: target/aarch64-apple-darwin/release/bundle/dmg
+            pattern: "*.dmg"
+            stable_name: LectureCapture-macOS-AppleSilicon.dmg
           - platform: windows-latest
-            args: ""
+            args: --bundles nsis
+            bundle_dir: target/release/bundle/nsis
+            pattern: "*-setup.exe"
+            stable_name: LectureCapture-Windows-Setup.exe
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -34,8 +49,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "LectureCapture ${{ github.ref_name }}"
-          releaseBody: "Instalatory dla macOS (Apple Silicon) i Windows. Modele Whisper pobierane są z poziomu aplikacji."
-          releaseDraft: true
+          tagName: ${{ env.TAG }}
+          releaseName: "LectureCapture ${{ env.TAG }}"
+          releaseBody: |
+            ## Pobierz
+
+            | System | Plik |
+            |---|---|
+            | macOS 15+ (Apple Silicon M1–M4) | `LectureCapture-macOS-AppleSilicon.dmg` |
+            | Windows 10/11 (64‑bit) | `LectureCapture-Windows-Setup.exe` |
+
+            Aplikacja nie jest podpisana certyfikatem Apple/Microsoft – przy pierwszym uruchomieniu system wyświetli ostrzeżenie.
+            Instrukcja krok po kroku: [INSTALL.md](https://github.com/${{ github.repository }}/blob/master/INSTALL.md).
+
+            Modele Whisper nie są dołączone – pobierasz je w aplikacji (*Modele Whisper*).
+          releaseDraft: false
+          prerelease: false
           args: ${{ matrix.args }}
+      # Copy with a version-independent name so README can link to releases/latest/download/<name>
+      - name: Upload installer with stable name
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          file=$(ls ${{ matrix.bundle_dir }}/${{ matrix.pattern }} | head -n1)
+          cp "$file" "${{ matrix.stable_name }}"
+          gh release upload "$TAG" "${{ matrix.stable_name }}" --clobber

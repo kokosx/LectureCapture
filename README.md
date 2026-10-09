@@ -58,27 +58,40 @@ niewymyślania treści, terminologii fachowej po polsku i prostszych wyjaśnień
 | Przechwytywanie ScreenCaptureKit (okno/monitor/obszar) + dźwięk systemowy na macOS | ⏳ patrz sekcja „Weryfikacja na urządzeniu” |
 | Windows: Windows Graphics Capture + WASAPI loopback | ⚠️ zaimplementowane, kompiluje się; testy rdzenia uruchamiane w CI na Windows, **nie zweryfikowane na fizycznym Windowsie** |
 
-## Instalacja
+## Pobierz
 
-### Gotowe instalatory
-Wydania (DMG dla Apple Silicon, instalator NSIS dla Windows) budowane są przez GitHub Actions dla tagów `v*`
-– zakładka *Releases*. Modele Whisper nie są dołączane (pobierasz je w aplikacji: *Modele Whisper*).
+| System | Instalator |
+|---|---|
+| 🍎 macOS 15+ (Apple Silicon M1–M4) | [**LectureCapture-macOS-AppleSilicon.dmg**](https://github.com/kokosx/LectureCapture/releases/latest/download/LectureCapture-macOS-AppleSilicon.dmg) |
+| 🪟 Windows 10 / 11 (64‑bit) | [**LectureCapture-Windows-Setup.exe**](https://github.com/kokosx/LectureCapture/releases/latest/download/LectureCapture-Windows-Setup.exe) |
 
-### Budowanie ze źródeł (macOS)
+Wszystkie wersje: [Releases](https://github.com/kokosx/LectureCapture/releases). Modele Whisper nie są dołączone –
+pobierasz je w aplikacji (*Modele Whisper*).
 
-Wymagania: macOS 15+, Xcode Command Line Tools, Rust (stable), Node.js 20+, CMake (`brew install cmake`).
+**➡️ Instrukcja instalacji krok po kroku: [INSTALL.md](INSTALL.md)**
+
+Aplikacja nie ma płatnego certyfikatu Apple/Microsoft, więc przy pierwszym uruchomieniu trzeba jednorazowo ominąć ostrzeżenie:
+
+* **macOS:** przeciągnij aplikację do *Aplikacji*, potem w Terminalu:
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/LectureCapture.app
+  ```
+  (albo *Ustawienia systemowe → Prywatność i ochrona → Otwórz mimo to*).
+* **Windows:** w oknie SmartScreen kliknij *Więcej informacji → Uruchom mimo to*.
+
+### Budowanie ze źródeł
+
+Wymagania (macOS): macOS 15+, Xcode Command Line Tools, Rust (stable), Node.js 20+, CMake (`brew install cmake`).
+Windows: Rust (MSVC), Node.js 20+, CMake, Visual Studio Build Tools (C++).
 
 ```bash
 git clone https://github.com/kokosx/LectureCapture && cd LectureCapture
 npm install
-npx tauri build --bundles app        # → target/release/bundle/macos/LectureCapture.app
+npx tauri build                      # macOS → target/release/bundle/dmg, Windows → target/release/bundle/nsis
 ```
 
 Tryb deweloperski: `npx tauri dev`. Dla stabilnych uprawnień TCC podpisz aplikację swoim certyfikatem:
-`APPLE_SIGNING_IDENTITY="Apple Development: …" npx tauri build`.
-
-### Windows
-Wymagania: Rust (MSVC), Node.js, CMake, Visual Studio Build Tools. `npm install && npx tauri build`.
+`APPLE_SIGNING_IDENTITY="Apple Development: …" npx tauri build`. Szczegóły: [INSTALL.md](INSTALL.md#budowanie-ze-źródeł).
 
 ## Pierwsze uruchomienie
 
