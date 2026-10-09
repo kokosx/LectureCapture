@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # bundled libopus / whisper.cpp still declare old cmake_minimum_required
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Frontend (typecheck + build)
+        run: |
+          npm ci
+          npm run build
+      - name: Core tests (slide detection, audio, sync, storage, recovery, export, pipeline)
+        run: cargo test -p lc-core
+      - name: Whisper crate tests (real-speech tests are skipped without a downloaded model)
+        run: cargo test -p lc-whisper
+      - name: Build capture backends, CLI and desktop app
+        run: cargo build -p lc-capture -p lc-cli -p lecturecapture

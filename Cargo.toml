@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lc-core", "crates/lc-capture", "crates/lc-whisper", "crates/lc-cli"]
+members = ["crates/lc-core", "crates/lc-capture", "crates/lc-whisper", "crates/lc-cli", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -34,3 +34,9 @@ opt-level = 2
 lto = "thin"
 codegen-units = 4
 strip = "debuginfo"
+
+# proc-macros / build scripts: never strip (stripped proc-macro dylibs fail to load
+# with the Xcode 27 linker: "mis-aligned LINKEDIT string pool")
+[profile.release.build-override]
+strip = false
+debug = false

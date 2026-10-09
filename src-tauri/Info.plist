@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>LectureCapture może opcjonalnie nagrywać Twój mikrofon (np. pytania zadawane podczas wykładu). Mikrofon jest domyślnie wyłączony.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>LectureCapture zapisuje slajdy z wybranego okna lub obszaru ekranu oraz dźwięk wykładu – wyłącznie lokalnie na tym komputerze.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>LectureCapture nagrywa dźwięk wykładu odtwarzany przez Microsoft Teams, aby lokalnie utworzyć transkrypcję.</string>
+</dict>
+</plist>

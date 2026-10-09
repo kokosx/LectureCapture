@@ -8,3 +8,4 @@ src-tauri/gen/schemas/
 /models/
 *.zip.part
 .env
+/dev-preview/
