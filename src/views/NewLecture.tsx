@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { AppWindow, Monitor, RefreshCw, FolderOpen, Volume2, Mic, Play, Crop, Info, Download, Clock, LogOut, AlertTriangle } from "lucide-react";
+import { AppWindow, Monitor, RefreshCw, FolderOpen, Volume2, Mic, Play, Crop, Info, Download, Clock, LogOut, AlertTriangle, Video, School } from "lucide-react";
 import {
   api, AudioDevices, AudioSelection, AudioTestSource, AutoStopInfo, CaptureTarget, LANGUAGES, NormRect, SourceList, SubjectInfo,
 } from "../lib/api";
 import { errorText, fmtBytes } from "../lib/format";
 import { Badge, Button, Card, Field, Input, LevelMeter, Segmented, Select, Toggle, useToast, cx } from "../components/ui";
 import { CropSelector } from "../components/CropSelector";
-import { PermissionRow } from "./Consent";
+import { MicPermissionRow, PermissionRow, usePermissions } from "./Consent";
 import { useModels } from "./Models";
 import type { Nav } from "../App";
 
 const NEW_SUBJECT = "\u0000new";
 
 /** Scheduled end + "leave the Teams meeting" options (shared with the recording view). */
-export function AutoStopFields({ enabled, setEnabled, time, setTime, leave, setLeave, info }: {
+export function AutoStopFields({ enabled, setEnabled, time, setTime, leave, setLeave, info, hideLeave }: {
   enabled: boolean; setEnabled: (v: boolean) => void; time: string; setTime: (v: string) => void;
-  leave: boolean; setLeave: (v: boolean) => void; info: AutoStopInfo | null;
+  leave: boolean; setLeave: (v: boolean) => void; info: AutoStopInfo | null; hideLeave?: boolean;
 }) {
   return (
     <div className="space-y-2.5">
@@ -37,7 +37,7 @@ export function AutoStopFields({ enabled, setEnabled, time, setTime, leave, setL
           className="h-8 px-2 rounded-md bg-panel border border-line text-fg tabular-nums outline-none focus:border-accent disabled:opacity-45"
         />
       </div>
-      {enabled && (
+      {enabled && !hideLeave && (
         <div className="pl-11 space-y-2">
           <Toggle
             checked={leave}
@@ -56,6 +56,31 @@ export function AutoStopFields({ enabled, setEnabled, time, setTime, leave, setL
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function AudioTestResults({ test, hall }: { test: AudioTestSource[]; hall?: boolean }) {
+  return (
+    <div className="mt-2.5 space-y-2">
+      {test.map((t, i) => (
+        <div key={i} className="text-[12px]">
+          <div className="flex justify-between mb-1">
+            <span className="font-medium">{t.description}</span>
+            <span className="text-muted tabular-nums">{t.started ? `${t.level_db.toFixed(0)} dB` : "błąd"}</span>
+          </div>
+          {t.started && <LevelMeter db={t.level_db} />}
+          <div className={cx("mt-1", t.error || t.buffers === 0 || t.level_db < -60 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+            {t.error
+              ? t.error
+              : t.buffers === 0
+                ? "Nie otrzymano żadnych danych audio – sprawdź uprawnienia i urządzenie."
+                : t.level_db < -60
+                  ? `Dane docierają (${t.seconds_received.toFixed(1)} s), ale to cisza. ${hall ? "Powiedz coś podczas testu" : "Włącz dźwięk w Teams"} i spróbuj ponownie.`
+                  : `Sygnał OK – ${t.seconds_received.toFixed(1)} s audio odebrane.`}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -103,7 +128,15 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
   const [language, setLanguage] = useState(s.transcription.language);
   const [live, setLive] = useState(s.transcription.live);
   const [starting, setStarting] = useState(false);
+  const [mode, setMode] = useState<"teams" | "hall">(s.last_audio_only ? "hall" : "teams");
+  const hall = mode === "hall";
+  const { perm } = usePermissions();
+  const screenOk = perm?.screen ?? false;
   const { models, downloads } = useModels();
+  // lecture hall: microphone only, no screen capture (and no screen-recording permission)
+  const effectiveAudio: AudioSelection = hall
+    ? { ...audio, capture_system: false, capture_microphone: true, only_application: null, loopback_device: null }
+    : audio;
 
   const loadSources = useCallback(async () => {
     try {
@@ -120,8 +153,14 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
     }
   }, [windowId, displayId]);
 
+  // ScreenCaptureKit prompts for permission on every call without it – only ask for
+  // windows once access is granted and the picture is actually needed.
   useEffect(() => {
-    loadSources();
+    if (!hall && screenOk) loadSources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hall, screenOk]);
+
+  useEffect(() => {
     api.listAudioDevices().then(setDevices);
     api.systemInfo().then((i) => setPlatform(i.platform));
     api.listSubjects().then(setSubjects).catch(() => {});
@@ -134,10 +173,11 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
   }, [outputDir]);
 
   const target: CaptureTarget | null = useMemo(() => {
+    if (hall) return null;
     if (kind === "display") return displayId !== null ? { kind: "display", id: displayId } : null;
     const w = sources?.windows.find((w) => w.id === windowId);
     return w ? { kind: "window", id: w.id, bundle_id: w.bundle_id, title: w.title } : null;
-  }, [kind, displayId, windowId, sources]);
+  }, [hall, kind, displayId, windowId, sources]);
 
   const refreshPreview = useCallback(async () => {
     if (!target) return;
@@ -164,13 +204,13 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
 
   const selectedModel = models.find((m) => m.info.id === model);
   const modelMissing = transcribe && !!selectedModel && !selectedModel.installed;
-  const nothingToRecord = !target;
+  const nothingToRecord = hall ? false : !target;
 
   const runTest = async () => {
     setTesting(true);
     setTest(null);
     try {
-      setTest(await api.audioTest(audio, 3));
+      setTest(await api.audioTest(effectiveAudio, 3));
     } catch (e) {
       toast(errorText(e), "error");
     } finally {
@@ -188,7 +228,7 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
   const savePath = subjectName ? `${outputDir.replace(/[\\/]+$/, "")}${sep}${subjectName}` : outputDir;
 
   const start = async () => {
-    if (!target) return;
+    if (!hall && !target) return;
     if (subject === NEW_SUBJECT && !subjectName) {
       toast("Podaj nazwę nowego przedmiotu.", "error");
       return;
@@ -200,10 +240,10 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
         output_dir: outputDir,
         subject: subjectName || null,
         stop_at: stopEnabled ? stopAt : null,
-        leave_meeting: leave,
-        target,
-        crop,
-        audio,
+        leave_meeting: leave && !hall,
+        target: hall ? null : target,
+        crop: hall ? null : crop,
+        audio: effectiveAudio,
         transcription: transcribe,
         model,
         language,
@@ -221,11 +261,48 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
   return (
     <div className="max-w-[1180px] mx-auto px-8 pb-28">
       <h1 className="text-[22px] font-semibold tracking-tight">Nowy wykład</h1>
-      <p className="text-muted mt-0.5 mb-5">Wybierz okno Teams (najlepiej sam obszar prezentacji) i źródło dźwięku. Resztą zajmie się aplikacja.</p>
-      <div className="mb-4"><PermissionRow compact /></div>
+      <p className="text-muted mt-0.5 mb-4">
+        {hall
+          ? "Jesteś na sali: aplikacja nagrywa dźwięk z mikrofonu i robi z niego transkrypcję – bez nagrywania ekranu."
+          : "Wybierz okno Teams (najlepiej sam obszar prezentacji) i źródło dźwięku. Resztą zajmie się aplikacja."}
+      </p>
+      <div className="mb-4">
+        <Segmented
+          value={mode}
+          onChange={(v) => { setMode(v); setTest(null); }}
+          options={[
+            { value: "teams", label: <><Video size={13} /> Teams (zdalnie)</> },
+            { value: "hall", label: <><School size={13} /> Na sali (tylko dźwięk)</> },
+          ]}
+        />
+      </div>
+      {!hall && <div className="mb-4"><PermissionRow compact /></div>}
 
       <div className="grid grid-cols-[minmax(0,1fr)_400px] gap-5">
         <div className="space-y-4 min-w-0">
+          {hall ? (
+            <Card title="Mikrofon">
+              <div className="space-y-3">
+                <MicPermissionRow />
+                <div className="text-[12.5px] text-muted leading-relaxed">
+                  Połóż komputer możliwie blisko prowadzącego (albo użyj zewnętrznego mikrofonu). Nagranie i transkrypcja
+                  powstają lokalnie, a po wykładzie dostajesz transkrypcję i gotowy PROMPT.md do opracowania notatek.
+                  Uprawnienie „Nagrywanie ekranu” nie jest potrzebne – macOS zapyta tylko o mikrofon.
+                </div>
+                <Field label="Urządzenie">
+                  <Select
+                    value={audio.microphone_device ?? ""}
+                    onChange={(v) => setAudio({ ...audio, microphone_device: v || null })}
+                    options={[{ value: "", label: "Domyślny mikrofon" }, ...(devices?.inputs ?? []).map((d) => ({ value: d.name, label: d.name }))]}
+                  />
+                </Field>
+                <div>
+                  <Button size="sm" icon={<Play size={13} />} loading={testing} onClick={runTest}>Test mikrofonu (3 s)</Button>
+                  {test && <AudioTestResults test={test} hall />}
+                </div>
+              </div>
+            </Card>
+          ) : (
           <Card title="Obraz">
             <div className="flex items-center justify-between mb-3">
               <Segmented
@@ -284,6 +361,7 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
               </div>
             )}
           </Card>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -333,10 +411,11 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
               leave={leave}
               setLeave={setLeave}
               info={autoInfo}
+              hideLeave={hall}
             />
           </Card>
 
-          <Card title="Dźwięk">
+          {!hall && <Card title="Dźwięk">
             <div className="space-y-3">
               <Toggle
                 checked={audio.capture_system}
@@ -379,31 +458,10 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
                 <Button size="sm" icon={<Play size={13} />} loading={testing} onClick={runTest} disabled={!audio.capture_system && !audio.capture_microphone}>
                   Test dźwięku (3 s)
                 </Button>
-                {test && (
-                  <div className="mt-2.5 space-y-2">
-                    {test.map((t, i) => (
-                      <div key={i} className="text-[12px]">
-                        <div className="flex justify-between mb-1">
-                          <span className="font-medium">{t.description}</span>
-                          <span className="text-muted tabular-nums">{t.started ? `${t.level_db.toFixed(0)} dB` : "błąd"}</span>
-                        </div>
-                        {t.started && <LevelMeter db={t.level_db} />}
-                        <div className={cx("mt-1", t.error || t.buffers === 0 || t.level_db < -60 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
-                          {t.error
-                            ? t.error
-                            : t.buffers === 0
-                              ? "Nie otrzymano żadnych danych audio – sprawdź uprawnienia i urządzenie."
-                              : t.level_db < -60
-                                ? `Dane docierają (${t.seconds_received.toFixed(1)} s), ale to cisza. Włącz dźwięk w Teams i spróbuj ponownie.`
-                                : `Sygnał OK – ${t.seconds_received.toFixed(1)} s audio odebrane.`}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {test && <AudioTestResults test={test} />}
               </div>
             </div>
-          </Card>
+          </Card>}
 
           <Card title="Transkrypcja">
             <div className="space-y-3">
@@ -451,7 +509,9 @@ export function NewLecture({ nav, onStarted, subject: initialSubject }: { nav: N
 
       <div className="fixed bottom-0 left-[214px] right-0 border-t border-line bg-panel/90 backdrop-blur px-8 py-3 flex items-center justify-end gap-3">
         <span className="text-muted text-[12.5px] mr-auto">
-          {target ? (crop ? "Nagrywany będzie zaznaczony obszar." : "Nagrywany będzie cały wybrany obraz.") : "Wybierz źródło obrazu."}
+          {hall
+            ? transcribe ? "Nagrywany będzie tylko dźwięk z mikrofonu (z transkrypcją)." : "Nagrywany będzie tylko dźwięk z mikrofonu."
+            : target ? (crop ? "Nagrywany będzie zaznaczony obszar." : "Nagrywany będzie cały wybrany obraz.") : "Wybierz źródło obrazu."}
         </span>
         <Button variant="ghost" onClick={() => nav.go({ name: "dashboard" })}>Anuluj</Button>
         <Button variant="rec" size="lg" loading={starting} disabled={nothingToRecord || modelMissing} onClick={start}>

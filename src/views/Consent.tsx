@@ -1,20 +1,59 @@
 import { useEffect, useState } from "react";
-import { ShieldCheck, MonitorPlay, Lock } from "lucide-react";
+import { ShieldCheck, MonitorPlay, Lock, RotateCcw, Wrench } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, Permissions } from "../lib/api";
-import { Button, Badge } from "../components/ui";
+import { Button, Badge, useToast } from "../components/ui";
+import { errorText } from "../lib/format";
 import type { Nav } from "../App";
 
 export const PRIVACY_URL_MAC = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+export const PRIVACY_MIC_URL_MAC = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
 
-export function PermissionRow({ compact }: { compact?: boolean }) {
+export function usePermissions() {
   const [perm, setPerm] = useState<Permissions | null>(null);
-  const refresh = () => api.permissions().then(setPerm);
+  const refresh = () => api.permissions().then(setPerm).catch(() => {});
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 2000);
     return () => clearInterval(t);
   }, []);
+  return { perm, refresh };
+}
+
+/** Hint + "reset" for a toggle that is on in System Settings but not seen by this build. */
+function StaleEntryFix({ onReset }: { onReset?: () => void }) {
+  const toast = useToast();
+  const [resetDone, setResetDone] = useState(false);
+  const reset = async () => {
+    try {
+      await api.resetPermissions();
+      setResetDone(true);
+      onReset?.();
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  };
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-amber-500/20 text-muted">
+      {resetDone ? (
+        <>
+          Wpisy zostały wyczyszczone. Włącz LectureCapture w oknie systemowym (lub w Ustawieniach systemowych), a potem uruchom aplikację ponownie.
+          <div className="mt-2"><Button size="sm" variant="primary" icon={<RotateCcw size={13} />} onClick={() => api.restartApp().catch((e) => toast(errorText(e), "error"))}>Uruchom ponownie</Button></div>
+        </>
+      ) : (
+        <>
+          <b className="text-fg font-medium">Przełącznik jest włączony, a aplikacja dalej prosi o zgodę?</b> macOS pamięta
+          uprawnienie dla poprzedniej wersji aplikacji. Wyczyść stare wpisy i nadaj uprawnienie jeszcze raz.
+          <div className="mt-2"><Button size="sm" icon={<Wrench size={13} />} onClick={reset}>Napraw uprawnienia</Button></div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function PermissionRow({ compact }: { compact?: boolean }) {
+  const toast = useToast();
+  const { perm, refresh } = usePermissions();
   if (!perm) return null;
   if (perm.screen) {
     return compact ? null : (
@@ -26,12 +65,28 @@ export function PermissionRow({ compact }: { compact?: boolean }) {
       <div className="font-medium mb-1">Brak uprawnienia „Nagrywanie ekranu i dźwięku systemowego”</div>
       <div className="text-muted mb-2.5">
         macOS wymaga Twojej zgody, aby aplikacja mogła zapisywać slajdy i dźwięk z Teams. Po nadaniu uprawnienia uruchom
-        LectureCapture ponownie.
+        LectureCapture ponownie. Do samej transkrypcji na sali (tryb „Na sali”) to uprawnienie nie jest potrzebne.
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="primary" onClick={() => api.requestScreenPermission().then(refresh)}>Poproś o uprawnienie</Button>
         <Button size="sm" onClick={() => openUrl(PRIVACY_URL_MAC)}>Otwórz Ustawienia systemowe</Button>
+        <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} onClick={() => api.restartApp().catch((e) => toast(errorText(e), "error"))}>Uruchom ponownie</Button>
       </div>
+      <StaleEntryFix onReset={refresh} />
+    </div>
+  );
+}
+
+/** Microphone status for the lecture-hall mode (macOS asks on first use). */
+export function MicPermissionRow() {
+  const { perm, refresh } = usePermissions();
+  if (!perm || perm.microphone !== "denied") return null;
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[12.5px]">
+      <div className="font-medium mb-1">Brak uprawnienia „Mikrofon”</div>
+      <div className="text-muted mb-2.5">Włącz LectureCapture w Ustawieniach systemowych → Prywatność i ochrona → Mikrofon.</div>
+      <Button size="sm" variant="primary" onClick={() => openUrl(PRIVACY_MIC_URL_MAC)}>Otwórz Ustawienia systemowe</Button>
+      <StaleEntryFix onReset={refresh} />
     </div>
   );
 }

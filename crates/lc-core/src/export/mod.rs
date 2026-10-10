@@ -87,7 +87,9 @@ pub fn write_documents(session: &LectureSession) -> Result<()> {
     let m = &session.manifest;
     let d = &session.dir;
     atomic_write(&d.abs("transcript/full.md"), markdown::full_md(m, &data).as_bytes())?;
-    atomic_write(&d.abs("transcript/by-slide.md"), markdown::by_slide_md(m, &data).as_bytes())?;
+    if !m.is_audio_only() {
+        atomic_write(&d.abs("transcript/by-slide.md"), markdown::by_slide_md(m, &data).as_bytes())?;
+    }
     atomic_write(&d.abs("lecture.md"), markdown::lecture_md(m, &data).as_bytes())?;
     atomic_write(&d.abs("PROMPT.md"), prompt::prompt_md(m, &data).as_bytes())?;
     Ok(())

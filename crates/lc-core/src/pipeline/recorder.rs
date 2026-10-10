@@ -91,6 +91,7 @@ impl Recorder {
         // Start the capture sources first: if the screen cannot be captured we fail
         // before creating an empty lecture folder.
         let video_desc = video.describe();
+        let audio_only = video_desc.kind == AUDIO_ONLY_KIND;
         handles.push(video.start(cfg.detector.sample_fps, video_tx).context("Nie można uruchomić przechwytywania obrazu")?);
         let mut kinds = Vec::new();
         for mut a in audio_sources {
@@ -157,11 +158,19 @@ impl Recorder {
         let dir = session.dir.clone();
         let session = Arc::new(Mutex::new(session));
         let mut st = RecorderStatus::new(&cfg.title, &dir.root.to_string_lossy());
+        st.audio_only = audio_only;
+        if audio_only {
+            st.video.state = "none".into();
+        }
         for w in early_warnings {
             st.warn(0, "warning", w);
         }
         if kinds.is_empty() {
-            st.warn(0, "warning", "Brak aktywnego źródła audio – nagrywane będą tylko slajdy.");
+            if audio_only {
+                st.warn(0, "error", "Nie udało się uruchomić mikrofonu – nic nie jest nagrywane. Sprawdź uprawnienie „Mikrofon” w Ustawieniach systemowych.");
+            } else {
+                st.warn(0, "warning", "Brak aktywnego źródła audio – nagrywane będą tylko slajdy.");
+            }
         }
         let status = Arc::new(Mutex::new(st));
 
@@ -827,10 +836,12 @@ fn process_blocks(c: &AudioCtx, st: &mut AudioState, blocks: Vec<Block>, mixer: 
         st.no_signal = true;
         s.audio.no_signal = true;
         let start = pos_ms.saturating_sub(silent_for);
-        s.warn(pos_ms, "warning", format!(
-            "Brak sygnału audio od {} s – sprawdź, czy dźwięk z Teams jest odtwarzany i przechwytywany.",
-            silent_for / 1000
-        ));
+        let hint = if s.audio_only {
+            "sprawdź mikrofon i uprawnienie „Mikrofon” w Ustawieniach systemowych"
+        } else {
+            "sprawdź, czy dźwięk z Teams jest odtwarzany i przechwytywany"
+        };
+        s.warn(pos_ms, "warning", format!("Brak sygnału audio od {} s – {hint}.", silent_for / 1000));
         let _ = c.writer.send(WriterMsg::OpenGap(GapKind::NoAudioSignal, start, None));
     } else if st.no_signal && silent_for == 0 {
         st.no_signal = false;

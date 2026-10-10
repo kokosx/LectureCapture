@@ -49,6 +49,9 @@ fn ids_list(ids: &[u32]) -> String {
 }
 
 pub fn prompt_md(m: &Manifest, data: &LectureData) -> String {
+    if m.is_audio_only() {
+        return audio_only_prompt_md(m, data);
+    }
     let l = &m.lecture;
     let words = data.records.iter().map(|r| r.words.len()).sum::<usize>();
     let batches = batches(m);
@@ -138,6 +141,84 @@ przygotowanie profesjonalnych, rzetelnych materiałów do nauki **w języku pols
     );
     s.push_str("- [ ] Przeczytałem całą transkrypcję od początku do końca.\n");
     s.push_str("- [ ] Każde zagadnienie ma odwołanie do slajdu lub czasu wypowiedzi.\n");
+    s.push_str("- [ ] Niejasności i braki są oznaczone, nic nie zostało zmyślone.\n");
+    s.push_str("- [ ] Utworzyłem `notes.md`, `summary.md`, `exam-questions.md`, `flashcards.md`.\n\n");
+    let _ = writeln!(
+        s,
+        "_Wygenerowano automatycznie przez LectureCapture {} · {} · nagranie {}–{}._",
+        crate::APP_VERSION,
+        l.started_at.format("%Y-%m-%d"),
+        fmt_ms(0),
+        fmt_ms(m.end_ms())
+    );
+    s
+}
+
+/// PROMPT.md for a lecture recorded in the hall: transcript only, no slides.
+fn audio_only_prompt_md(m: &Manifest, data: &LectureData) -> String {
+    let l = &m.lecture;
+    let words = data.records.iter().map(|r| r.words.len()).sum::<usize>();
+    let mut s = String::new();
+
+    let _ = writeln!(s, "# PROMPT — opracowanie notatek z wykładu „{}”\n", l.title);
+    s.push_str(
+        "Jesteś asystentem naukowym. Ten folder zawiera zapis wykładu przygotowany automatycznie przez \
+aplikację LectureCapture podczas zajęć na sali: **pełną automatyczną transkrypcję wypowiedzi prowadzącego** \
+(nagranie z mikrofonu, bez slajdów). Twoim zadaniem jest przygotowanie profesjonalnych, rzetelnych \
+materiałów do nauki **w języku polskim**.\n\n",
+    );
+
+    s.push_str("## Dane wykładu\n\n");
+    let _ = writeln!(s, "- Tytuł: **{}**", l.title);
+    let _ = writeln!(s, "- Data: {} ({})", l.started_at.format("%Y-%m-%d %H:%M"), super::markdown::weekday_pl(&l.started_at));
+    let _ = writeln!(s, "- Czas trwania: {}", fmt_duration_long(m.end_ms()));
+    let _ = writeln!(
+        s,
+        "- Transkrypcja: {} słów, model `{}`, język `{}`, status: {}",
+        words,
+        m.transcription.model,
+        m.transcription.language,
+        super::markdown::transcription_status_label(m.transcription.status)
+    );
+    s.push_str("- Slajdy: brak (nagranie dźwięku na sali)\n");
+    if !m.gaps.is_empty() || !l.notes.is_empty() {
+        s.push_str("- Uwaga: w materiale występują braki danych – szczegóły w sekcji „Braki i jakość danych” w `lecture.md`.\n");
+    }
+    s.push('\n');
+
+    s.push_str("## Pliki w folderze\n\n");
+    s.push_str("| Plik | Zawartość |\n|---|---|\n");
+    s.push_str("| `transcript/full.md` | **pełna** transkrypcja chronologicznie |\n");
+    s.push_str("| `lecture.md` | metadane, braki danych i transkrypcja |\n");
+    s.push_str("| `transcript/segments.jsonl` | segmenty z czasami pojedynczych słów (gdy potrzebujesz precyzji) |\n");
+    s.push_str("| `manifest.json` | metadane i braki danych (`gaps`) |\n\n");
+    s.push_str("Czasy `[MM:SS]` / `*_ms` są liczone od początku wykładu.\n\n");
+
+    s.push_str("## Procedura (wykonaj wszystkie kroki)\n\n");
+    s.push_str("1. **Przeczytaj całą transkrypcję** (`transcript/full.md` – od początku do końca, nie wybrane fragmenty) oraz sekcję braków danych w `lecture.md`.\n");
+    s.push_str("2. **Odtwórz strukturę wykładu**: tematy, kolejność, przejścia między zagadnieniami. Prowadzący mógł odwoływać się do tablicy lub slajdów, których nie widać – oznacz takie miejsca jako `[odwołanie do tablicy/slajdu]` i zrekonstruuj treść tylko na tyle, na ile wynika z wypowiedzi.\n");
+    s.push_str("3. **Zidentyfikuj** zagadnienia, definicje, twierdzenia, wzory, algorytmy (z krokami i złożonością, jeśli dotyczy), przykłady i zależności między pojęciami. Szczególnie wartościowe są ostrzeżenia („to będzie na egzaminie”, „częsty błąd”) i informacje organizacyjne.\n");
+    s.push_str("4. **Napisz kompleksowe notatki po polsku**, zachowując poprawną terminologię naukową i techniczną. Wzory zapisuj w LaTeX (`$...$`, `$$...$$`), kod w blokach kodu.\n");
+    s.push_str("5. **Trudne zagadnienia wyjaśnij prostszym językiem**, ale bez utraty precyzji.\n");
+    s.push_str("6. **Podawaj źródło**: przy każdym zagadnieniu znacznik czasu wypowiedzi, np. *(wykład 23:15)*.\n\n");
+
+    s.push_str("## Zasady rzetelności\n\n");
+    s.push_str("- **Nie wymyślaj informacji**, których nie da się ustalić z transkrypcji. Wiedzę spoza wykładu dodawaj tylko, gdy jest niezbędna do zrozumienia, i oznacz ją wyraźnie jako *[uzupełnienie spoza wykładu]*.\n");
+    s.push_str("- Transkrypcja jest automatyczna, a nagranie z sali może zawierać pogłos, szumy i pytania z sali: błędnie rozpoznane słowa (nazwiska, terminy, liczby, wzory czytane na głos) poprawiaj tylko, gdy sens jest jednoznaczny; w przeciwnym razie oznacz `[niejasne: …]`.\n");
+    s.push_str("- Oznaczaj problemy w tekście: `[niejasne: …]`, `[niesłyszalne]`, `[niekompletne: …]`.\n\n");
+
+    s.push_str("## Pliki do utworzenia (w tym folderze)\n\n");
+    s.push_str("1. **`notes.md`** – pełne notatki z wykładu: spis treści, sekcje według logicznej struktury wykładu, definicje, wzory, algorytmy, przykłady, wyjaśnienia prowadzącego.\n");
+    s.push_str("2. **`summary.md`** – zwięzłe podsumowanie (1–2 strony) oraz sekcja **„Najważniejsze do zapamiętania”**.\n");
+    s.push_str("3. **`exam-questions.md`** – potencjalne pytania egzaminacyjne **z pełnymi odpowiedziami** i znacznikami czasu, od podstawowych do trudnych.\n");
+    s.push_str("4. **`flashcards.md`** – fiszki w formacie `### temat` / `**P:** …` / `**O:** … *(wykład MM:SS)*`; opcjonalnie `flashcards.csv` (`pytanie;odpowiedź;tag`) do Anki.\n\n");
+    if words > 12_000 {
+        s.push_str("Materiał jest długi – przetwarzaj transkrypcję **fragmentami po ok. 20 minut** w kolejności, dopisując wyniki do `notes.md` i odhaczając postęp w `notes-progress.md`; na koniec ujednolić całość i przygotuj pozostałe pliki.\n\n");
+    }
+
+    s.push_str("## Kontrola końcowa\n\n");
+    s.push_str("- [ ] Przeczytałem całą transkrypcję od początku do końca.\n");
+    s.push_str("- [ ] Każde zagadnienie ma znacznik czasu wypowiedzi.\n");
     s.push_str("- [ ] Niejasności i braki są oznaczone, nic nie zostało zmyślone.\n");
     s.push_str("- [ ] Utworzyłem `notes.md`, `summary.md`, `exam-questions.md`, `flashcards.md`.\n\n");
     let _ = writeln!(

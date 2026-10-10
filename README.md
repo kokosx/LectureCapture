@@ -109,6 +109,9 @@ Tryb deweloperski: `npx tauri dev`. Dla stabilnych uprawnień TCC podpisz aplika
    Na macOS wymaga to jednorazowego uprawnienia *Ustawienia systemowe → Prywatność i ochrona → Dostępność* dla LectureCapture.
    Godzinę można zmienić lub wyłączyć w trakcie nagrywania.
 
+Na sali (bez Teams): *Nowy wykład → Na sali (tylko dźwięk)* – aplikacja nagrywa mikrofon i robi transkrypcję
+oraz PROMPT.md, bez nagrywania ekranu i bez uprawnienia „Nagrywanie ekranu”.
+
 Podczas nagrywania: *Pauza/Wznów*, *Zapisz slajd* (lub globalnie **⌘⇧S / Ctrl+Shift+S**), *Zatrzymaj i zapisz*.
 Wskaźnik nagrywania: czerwona kropka w aplikacji, tytuł okna oraz licznik przy ikonie w pasku menu.
 

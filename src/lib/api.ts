@@ -43,7 +43,7 @@ export interface Settings {
   lectures_root: string; known_roots: string[]; detector: DetectorConfig; audio: AudioConfig;
   transcription: TranscriptionConfig; output: OutputConfig; consent_acknowledged: boolean;
   capture_shortcut: string; keep_awake: boolean; theme: "system" | "light" | "dark";
-  last_target: CaptureTarget | null; last_crop: NormRect | null;
+  last_target: CaptureTarget | null; last_crop: NormRect | null; last_audio_only: boolean;
   last_subject: string | null; auto_leave_meeting: boolean;
 }
 
@@ -63,7 +63,7 @@ export interface TranscriptionView {
 }
 export interface RecorderStatus {
   state: "recording" | "paused" | "stopping" | "finished";
-  title: string; lecture_dir: string; elapsed_ms: number; slides: number; occurrences: number;
+  title: string; lecture_dir: string; audio_only: boolean; elapsed_ms: number; slides: number; occurrences: number;
   last_slide_id: number | null; last_slide_path: string | null; current_slide_id: number | null;
   video: { state: string; detail: string | null; frames: number; idle_ticks: number; dropped_frames: number; last_frame_ms: number | null; width: number; height: number };
   audio: { level_db: number; peak: number; sources: SourceStats[]; silent_for_ms: number; no_signal: boolean; recorded_ms: number; lost: string | null; speech_ratio: number };
@@ -125,7 +125,8 @@ export interface AudioSelection {
 export interface AudioTestSource { kind: string; description: string; started: boolean; error: string | null; buffers: number; seconds_received: number; level_db: number; peak: number }
 export interface StartRequest {
   title: string; output_dir: string | null; subject: string | null; stop_at: string | null; leave_meeting: boolean;
-  target: CaptureTarget; crop: NormRect | null; audio: AudioSelection;
+  /** null = audio only (lecture hall) */
+  target: CaptureTarget | null; crop: NormRect | null; audio: AudioSelection;
   transcription: boolean; model: string; language: string; live: boolean;
 }
 
@@ -136,6 +137,8 @@ export const api = {
   diskFree: (path: string) => invoke<number | null>("disk_free", { path }),
   permissions: () => invoke<Permissions>("permissions"),
   requestScreenPermission: () => invoke<boolean>("request_screen_permission"),
+  resetPermissions: () => invoke<boolean>("reset_permissions"),
+  restartApp: () => invoke<void>("restart_app"),
   listSources: () => invoke<SourceList>("list_sources"),
   listAudioDevices: () => invoke<AudioDevices>("list_audio_devices"),
   snapshot: (target: CaptureTarget) => invoke<{ width: number; height: number; data_url: string }>("snapshot", { target }),

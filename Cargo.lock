@@ -2599,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "lc-capture"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "cpal",
@@ -2615,7 +2615,7 @@ dependencies = [
 
 [[package]]
 name = "lc-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2632,7 +2632,7 @@ dependencies = [
 
 [[package]]
 name = "lc-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "audiopus_sys",
@@ -2657,7 +2657,7 @@ dependencies = [
 
 [[package]]
 name = "lc-whisper"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "hex",
@@ -2674,7 +2674,7 @@ dependencies = [
 
 [[package]]
 name = "lecturecapture"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

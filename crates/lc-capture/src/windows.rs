@@ -33,6 +33,10 @@ pub fn permissions() -> Permissions {
     Permissions { screen: true, microphone: "unknown".into() }
 }
 
+pub fn reset_permissions(_bundle_id: &str) -> Result<()> {
+    Ok(())
+}
+
 pub fn request_screen_permission() -> bool {
     true
 }

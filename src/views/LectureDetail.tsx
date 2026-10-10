@@ -4,7 +4,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeft, FolderOpen, ClipboardCopy, FileArchive, RotateCw, ChevronLeft, ChevronRight, Trash2, Clock, Layers,
-  AlertTriangle, Pencil, Check, X, FileText, Play, Folder,
+  AlertTriangle, Pencil, Check, X, FileText, Play, Folder, School,
 } from "lucide-react";
 import { api, fileSrc, LANGUAGES, LectureDetail, TranscriptionInfo, Part, SubjectInfo } from "../lib/api";
 import { errorText, fmtBytes, fmtDateTime, fmtDuration, fmtMs, parseTime, plural, transcriptionLabel } from "../lib/format";
@@ -61,6 +61,12 @@ export function LectureDetailView({ nav, path }: { nav: Nav; path: string }) {
   useEffect(() => {
     api.listSubjects().then(setSubjects).catch(() => {});
   }, []);
+
+  // recorded in the lecture hall: no slides, the transcript is the main view
+  const audioOnly = d?.manifest.capture.source.kind === "audio";
+  useEffect(() => {
+    if (audioOnly && (tab === "timeline" || tab === "gallery")) setTab("transcript");
+  }, [audioOnly, tab]);
 
   const load = useCallback(async () => {
     try {
@@ -183,7 +189,9 @@ export function LectureDetailView({ nav, path }: { nav: Nav; path: string }) {
           <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[12.5px] text-muted">
             <span>{fmtDateTime(m.lecture.started_at)}</span>
             <Badge><Clock size={11} /> {fmtDuration(m.lecture.duration_ms ?? m.lecture.last_alive_ms)}</Badge>
-            <Badge><Layers size={11} /> {plural(m.slides.length, "slajd", "slajdy", "slajdów")} · {plural(m.timeline.length, "wyświetlenie", "wyświetlenia", "wyświetleń")}</Badge>
+            {audioOnly
+              ? <Badge><School size={11} /> na sali · tylko dźwięk</Badge>
+              : <Badge><Layers size={11} /> {plural(m.slides.length, "slajd", "slajdy", "slajdów")} · {plural(m.timeline.length, "wyświetlenie", "wyświetlenia", "wyświetleń")}</Badge>}
             <Badge tone={transcriptionTone(m.transcription.status)}>transkrypcja: {transcriptionLabel[m.transcription.status]}</Badge>
             {m.lecture.status === "recovered" && <Badge tone="yellow">odzyskany po awarii</Badge>}
             <span>{fmtBytes(d.size_bytes)}</span>
@@ -251,8 +259,10 @@ export function LectureDetailView({ nav, path }: { nav: Nav; path: string }) {
           value={tab}
           onChange={setTab}
           options={[
-            { value: "timeline", label: "Slajdy i wypowiedzi" },
-            { value: "gallery", label: `Galeria (${m.slides.length})` },
+            ...(audioOnly ? [] : [
+              { value: "timeline" as const, label: "Slajdy i wypowiedzi" },
+              { value: "gallery" as const, label: `Galeria (${m.slides.length})` },
+            ]),
             { value: "transcript", label: "Pełna transkrypcja" },
             { value: "info", label: "Informacje" },
           ]}
@@ -387,8 +397,14 @@ export function LectureDetailView({ nav, path }: { nav: Nav; path: string }) {
           </Card>
           <Card title="Szczegóły">
             <dl className="grid grid-cols-[140px_1fr] gap-y-1.5 text-[12.5px] selectable">
-              <dt className="text-muted">Źródło</dt><dd>{m.capture.source.kind} · {[m.capture.source.app_name, m.capture.source.title].filter(Boolean).join(" — ")}</dd>
-              <dt className="text-muted">Obszar</dt><dd>{m.capture.crop ? "zaznaczony fragment" : "cały obraz"}</dd>
+              {audioOnly ? (
+                <><dt className="text-muted">Źródło</dt><dd>nagranie na sali – tylko dźwięk z mikrofonu</dd></>
+              ) : (
+                <>
+                  <dt className="text-muted">Źródło</dt><dd>{m.capture.source.kind} · {[m.capture.source.app_name, m.capture.source.title].filter(Boolean).join(" — ")}</dd>
+                  <dt className="text-muted">Obszar</dt><dd>{m.capture.crop ? "zaznaczony fragment" : "cały obraz"}</dd>
+                </>
+              )}
               <dt className="text-muted">Audio</dt><dd>{m.audio.file ? `${m.audio.file} (Opus ${m.audio.bitrate / 1000} kb/s)` : "usunięte po transkrypcji"}</dd>
               <dt className="text-muted">Silnik</dt><dd>{m.transcription.engine} · {m.transcription.model} · {m.transcription.language}</dd>
               <dt className="text-muted">Języki wykryte</dt><dd>{m.transcription.detected_languages.join(", ") || "—"}</dd>

@@ -156,10 +156,38 @@ fn request_screen_permission() -> bool {
     lc_capture::request_screen_permission()
 }
 
+/// Forget stale privacy entries (from older builds) and ask again.
+#[tauri::command]
+fn reset_permissions(app: AppHandle) -> CmdResult<bool> {
+    lc_capture::reset_permissions(&app.config().identifier).map_err(err)?;
+    Ok(lc_capture::request_screen_permission())
+}
+
+#[tauri::command]
+fn restart_app(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
+    if state.recorder.lock().is_some() {
+        return Err("Najpierw zakończ nagrywanie.".into());
+    }
+    app.restart()
+}
+
+const NO_SCREEN_PERMISSION: &str = "Brak uprawnienia „Nagrywanie ekranu i dźwięku systemowego”. Nadaj je w Ustawieniach systemowych → Prywatność i ochrona, a następnie uruchom aplikację ponownie.";
+
+/// ScreenCaptureKit shows the system prompt on every call without permission, so
+/// never touch it before the user has granted access.
+fn require_screen_permission() -> CmdResult<()> {
+    if lc_capture::permissions().screen {
+        Ok(())
+    } else {
+        Err(NO_SCREEN_PERMISSION.into())
+    }
+}
+
 // ---------------------------------------------------------------- sources & preview
 
 #[tauri::command]
 async fn list_sources() -> CmdResult<lc_capture::SourceList> {
+    require_screen_permission()?;
     tauri::async_runtime::spawn_blocking(lc_capture::list_sources).await.map_err(err)?.map_err(err)
 }
 
@@ -195,6 +223,7 @@ fn downscale(f: &Frame, max_w: u32) -> Frame {
 
 #[tauri::command]
 async fn snapshot(target: CaptureTarget) -> CmdResult<Preview> {
+    require_screen_permission()?;
     tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Preview> {
         use base64::Engine;
         let f = lc_capture::snapshot(&target)?;
@@ -398,7 +427,8 @@ struct StartRequest {
     stop_at: Option<String>,
     #[serde(default)]
     leave_meeting: bool,
-    target: CaptureTarget,
+    /// `None` = audio only (lecture hall): no picture, no screen-recording permission.
+    target: Option<CaptureTarget>,
     crop: Option<NormRect>,
     audio: AudioSelection,
     transcription: bool,
@@ -416,8 +446,13 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
     if !settings.consent_acknowledged {
         return Err("Najpierw potwierdź informację o zasadach nagrywania wykładów.".into());
     }
-    if !lc_capture::permissions().screen {
-        return Err("Brak uprawnienia „Nagrywanie ekranu i dźwięku systemowego”. Nadaj je w Ustawieniach systemowych → Prywatność i ochrona, a następnie uruchom aplikację ponownie.".into());
+    let audio_only = req.target.is_none();
+    if audio_only && !req.audio.capture_microphone && !req.audio.capture_system {
+        return Err("Włącz mikrofon – w trybie „Na sali” nagrywany jest tylko dźwięk.".into());
+    }
+    // system audio on macOS is captured through ScreenCaptureKit as well
+    if !audio_only || req.audio.capture_system {
+        require_screen_permission()?;
     }
     let title = if req.title.trim().is_empty() { "Wykład".to_string() } else { req.title.trim().to_string() };
     let base = req.output_dir.as_ref().filter(|s| !s.trim().is_empty()).map(PathBuf::from).unwrap_or(settings.lectures_root.clone());
@@ -435,8 +470,8 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
             Some(meeting::AutoStop {
                 at: at.to_rfc3339(),
                 at_time: at,
-                leave_meeting: req.leave_meeting,
-                window: meeting::MeetingWindow::from_target(&req.target),
+                leave_meeting: req.leave_meeting && !audio_only,
+                window: req.target.as_ref().map(meeting::MeetingWindow::from_target).unwrap_or_default(),
             })
         }
         None => None,
@@ -457,7 +492,7 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
     let cfg = RecorderConfig {
         title,
         output_parent: parent.clone(),
-        crop: req.crop.filter(|c| !c.is_full()),
+        crop: req.crop.filter(|c| !c.is_full() && !audio_only),
         detector: settings.detector.clone(),
         audio: audio_cfg.clone(),
         transcription: tcfg.clone(),
@@ -466,7 +501,10 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
     let target = req.target.clone();
     let sel = req.audio.clone();
     let rec = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Recorder> {
-        let video = lc_capture::video_source(target)?;
+        let video: Box<dyn lc_core::pipeline::VideoSource> = match target {
+            Some(t) => lc_capture::video_source(t)?,
+            None => Box::new(lc_core::pipeline::NoVideo),
+        };
         let (audio, errors) = build_audio_sources(&sel, &audio_cfg);
         for e in errors {
             log::warn!("audio source: {e}");
@@ -484,8 +522,11 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
     *state.auto_stop.lock() = auto_stop;
 
     // remember choices
-    settings.last_target = Some(req.target);
-    settings.last_crop = req.crop;
+    settings.last_audio_only = audio_only;
+    if let Some(t) = req.target {
+        settings.last_target = Some(t);
+        settings.last_crop = req.crop;
+    }
     settings.audio = state.settings.lock().audio.clone();
     settings.audio.capture_microphone = req.audio.capture_microphone;
     settings.audio.microphone_device = req.audio.microphone_device;
@@ -494,7 +535,9 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
         settings.known_roots.push(base);
     }
     settings.last_subject = subject;
-    settings.auto_leave_meeting = req.leave_meeting;
+    if !audio_only {
+        settings.auto_leave_meeting = req.leave_meeting;
+    }
     let keep = settings.keep_awake;
     let shortcut = settings.capture_shortcut.clone();
     *state.settings.lock() = settings;
@@ -512,7 +555,7 @@ async fn start_recording(app: AppHandle, state: State<'_, AppState>, req: StartR
             Err(e) => log::warn!("keepawake: {e}"),
         }
     }
-    if !shortcut.is_empty() {
+    if !shortcut.is_empty() && !audio_only {
         let h = app.clone();
         if let Err(e) = app.global_shortcut().on_shortcut(shortcut.as_str(), move |_app, _s, ev| {
             if ev.state == ShortcutState::Pressed {
@@ -605,13 +648,15 @@ fn get_auto_stop(state: State<AppState>) -> AutoStopInfo {
 /// Change (or clear with `stop_at = None`) the scheduled end of the running recording.
 #[tauri::command]
 fn set_auto_stop(state: State<AppState>, stop_at: Option<String>, leave_meeting: bool) -> CmdResult<AutoStopInfo> {
-    let window = {
+    let (window, audio_only) = {
         let rec = state.recorder.lock();
-        if rec.is_none() {
+        let Some(r) = rec.as_ref() else {
             return Err("Nagrywanie nie jest aktywne.".into());
-        }
-        state.settings.lock().last_target.as_ref().map(meeting::MeetingWindow::from_target).unwrap_or_default()
+        };
+        let window = state.settings.lock().last_target.as_ref().map(meeting::MeetingWindow::from_target).unwrap_or_default();
+        (window, r.status().audio_only)
     };
+    let leave_meeting = leave_meeting && !audio_only;
     let new = match stop_at.as_deref().filter(|s| !s.trim().is_empty()) {
         Some(hhmm) => {
             let at = meeting::next_occurrence(hhmm, chrono::Local::now()).map_err(err)?;
@@ -620,7 +665,9 @@ fn set_auto_stop(state: State<AppState>, stop_at: Option<String>, leave_meeting:
         None => None,
     };
     *state.auto_stop.lock() = new;
-    state.settings.lock().auto_leave_meeting = leave_meeting;
+    if !audio_only {
+        state.settings.lock().auto_leave_meeting = leave_meeting;
+    }
     state.save_settings();
     Ok(auto_stop_info(&state))
 }
@@ -1120,6 +1167,8 @@ pub fn run() {
             disk_free,
             permissions,
             request_screen_permission,
+            reset_permissions,
+            restart_app,
             list_sources,
             list_audio_devices,
             snapshot,

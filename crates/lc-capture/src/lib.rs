@@ -79,14 +79,14 @@ pub use platform::*;
 #[cfg(target_os = "macos")]
 mod platform {
     pub use super::macos::{
-        list_sources, permissions, request_screen_permission, snapshot, system_audio_source, video_source,
+        list_sources, permissions, request_screen_permission, reset_permissions, snapshot, system_audio_source, video_source,
     };
 }
 
 #[cfg(windows)]
 mod platform {
     pub use super::windows::{
-        list_sources, permissions, request_screen_permission, snapshot, system_audio_source, video_source,
+        list_sources, permissions, request_screen_permission, reset_permissions, snapshot, system_audio_source, video_source,
     };
 }
 
@@ -112,6 +112,9 @@ mod platform {
     }
     pub fn request_screen_permission() -> bool {
         false
+    }
+    pub fn reset_permissions(_bundle_id: &str) -> Result<()> {
+        Ok(())
     }
 }
 

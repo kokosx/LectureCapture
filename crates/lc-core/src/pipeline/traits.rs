@@ -44,6 +44,28 @@ pub trait VideoSource: Send {
     fn start(&mut self, fps: f32, tx: Sender<VideoEvent>) -> Result<Box<dyn CaptureHandle>>;
 }
 
+/// `SourceDescriptor::kind` of a lecture recorded without any picture.
+pub const AUDIO_ONLY_KIND: &str = "audio";
+
+/// Video source for audio-only lectures (in the lecture hall): delivers nothing and
+/// needs no screen-recording permission.
+pub struct NoVideo;
+
+struct NoVideoHandle;
+impl CaptureHandle for NoVideoHandle {
+    fn stop(&mut self) {}
+}
+
+impl VideoSource for NoVideo {
+    fn describe(&self) -> SourceDescriptor {
+        SourceDescriptor { kind: AUDIO_ONLY_KIND.into(), id: None, title: None, app_name: None, width: None, height: None }
+    }
+    fn start(&mut self, _fps: f32, _tx: Sender<VideoEvent>) -> Result<Box<dyn CaptureHandle>> {
+        // dropping `tx` closes the channel; the video thread then only serves control messages
+        Ok(Box::new(NoVideoHandle))
+    }
+}
+
 pub trait AudioSource: Send {
     fn kind(&self) -> SourceKind;
     fn describe(&self) -> String;

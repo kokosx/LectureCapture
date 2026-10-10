@@ -47,9 +47,14 @@ Potem uruchom aplikację normalnie z Launchpada / folderu Aplikacje.
    włącz LectureCapture (przycisk „Otwórz ustawienia” w aplikacji). Przy pierwszym użyciu system może też zapytać o
    sterowanie aplikacją „System Events” – kliknij **OK**.
 
-> Po aktualizacji do nowej wersji macOS może ponownie poprosić o uprawnienie nagrywania ekranu
-> (aplikacja nie ma stałego podpisu). Jeśli przechwytywanie pokazuje czarny obraz: usuń LectureCapture z listy
-> w ustawieniach (przycisk „–”), dodaj ponownie i uruchom aplikację jeszcze raz.
+> **Przełącznik jest włączony, a aplikacja dalej prosi o uprawnienie?** Wersje do 0.2.0 miały podpis powiązany
+> z konkretnym plikiem, więc po każdej aktualizacji macOS traktował je jak nową aplikację. Kliknij w aplikacji
+> **Napraw uprawnienia** (czyści stare wpisy), włącz LectureCapture w oknie systemowym i **Uruchom ponownie**.
+> To samo z Terminala: `tccutil reset ScreenCapture app.lecturecapture && tccutil reset Microphone app.lecturecapture`.
+> Od kolejnej wersji podpis opiera się na identyfikatorze aplikacji, więc uprawnienia zostają po aktualizacjach.
+>
+> Do samej transkrypcji na sali (tryb **Na sali (tylko dźwięk)** w *Nowym wykładzie*) uprawnienie nagrywania
+> ekranu nie jest potrzebne – wystarczy mikrofon.
 
 ### Mac z procesorem Intel
 Gotowy instalator jest tylko dla Apple Silicon. Na Macu z Intelem zbuduj aplikację ze źródeł (niżej).

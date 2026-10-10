@@ -237,6 +237,45 @@ fn missing_audio_signal_is_reported() {
 }
 
 #[test]
+fn audio_only_lecture_is_transcribed_without_picture() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (speech, _) = speech_like(&[(500, false), (4000, true), (1500, false), (4000, true), (1000, false)], 3);
+    let (factory, _) = energy_factory(false);
+    let clock = Arc::new(ManualClock::new());
+    let atap = Tap::default();
+    let rec = Recorder::start(
+        config(tmp.path()),
+        Box::new(NoVideo),
+        vec![Box::new(ScriptedAudio(atap.clone()))],
+        Some(factory),
+        clock.clone(),
+    )
+    .expect("recorder starts without a video source");
+    let mut d = Driver { clock, video: Tap::default(), audio: atap, audio48: to_48k(&speech), t_ms: 0 };
+    d.run_until(11_000, |_| None);
+    let st = rec.status();
+    assert!(st.audio_only);
+    assert_eq!(st.video.state, "none");
+    rec.capture_slide(); // no-op without picture
+    let out = rec.stop().unwrap();
+    wait_transcription(out.transcription.as_ref().unwrap());
+    let s = LectureSession::open(&out.lecture_dir).unwrap();
+    assert!(s.manifest.is_audio_only());
+    assert!(s.manifest.slides.is_empty());
+    assert!(!s.manifest.gaps.iter().any(|g| g.kind == GapKind::VideoLost));
+    assert_eq!(s.manifest.transcription.status, TranscriptionStatus::Completed);
+    assert!(s.dir.recording_path().exists());
+    lc_core::export::write_documents(&s).unwrap();
+    let lecture = std::fs::read_to_string(s.dir.abs("lecture.md")).unwrap();
+    assert!(lecture.contains("tylko dźwięk"));
+    assert!(!lecture.contains("slides/"));
+    let prompt = std::fs::read_to_string(s.dir.abs("PROMPT.md")).unwrap();
+    assert!(prompt.contains("bez slajdów"));
+    assert!(!prompt.contains("slides/NNN.png"));
+    assert!(!s.dir.abs("transcript/by-slide.md").exists());
+}
+
+#[test]
 fn transcription_errors_are_isolated() {
     let tmp = tempfile::tempdir().unwrap();
     let (speech, _) = speech_like(&[(500, false), (4000, true), (1500, false), (4000, true), (1000, false)], 7);

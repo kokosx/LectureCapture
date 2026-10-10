@@ -110,12 +110,16 @@ fn header_table(m: &Manifest) -> String {
         }
     }
     let src = &m.capture.source;
-    let _ = writeln!(
-        s,
-        "| Źródło obrazu | {} {} |",
-        src.kind,
-        [src.app_name.clone(), src.title.clone()].into_iter().flatten().collect::<Vec<_>>().join(" — ")
-    );
+    if m.is_audio_only() {
+        let _ = writeln!(s, "| Źródło obrazu | brak – nagranie na sali (tylko dźwięk z mikrofonu) |");
+    } else {
+        let _ = writeln!(
+            s,
+            "| Źródło obrazu | {} {} |",
+            src.kind,
+            [src.app_name.clone(), src.title.clone()].into_iter().flatten().collect::<Vec<_>>().join(" — ")
+        );
+    }
     if l.status == LectureStatus::Recovered {
         let _ = writeln!(s, "| Status | odzyskany po nieoczekiwanym zakończeniu |");
     }
@@ -147,7 +151,7 @@ fn gaps_section(m: &Manifest, data: &LectureData) -> String {
         any = true;
         let _ = writeln!(s, "- Brak rozpoznanych wypowiedzi w transkrypcji.");
     }
-    if !data.assignment.outside.is_empty() {
+    if !m.is_audio_only() && !data.assignment.outside.is_empty() {
         any = true;
         let _ = writeln!(
             s,
@@ -171,6 +175,21 @@ pub fn lecture_md(m: &Manifest, data: &LectureData) -> String {
     s.push_str(&header_table(m));
     s.push('\n');
     s.push_str(&gaps_section(m, data));
+    if m.is_audio_only() {
+        s.push_str("\n## Pliki\n\n");
+        s.push_str("- `transcript/full.md` – pełna transkrypcja chronologicznie\n");
+        s.push_str("- `transcript/segments.jsonl` – segmenty z czasami słów (dane maszynowe)\n");
+        s.push_str("- `manifest.json` – metadane\n");
+        s.push_str("- `PROMPT.md` – instrukcja dla agenta AI do opracowania notatek\n\n");
+        s.push_str("## Przebieg wykładu\n\n");
+        if data.records.is_empty() {
+            s.push_str("_(brak rozpoznanych wypowiedzi)_\n");
+        }
+        for (start, text) in paragraphs(&data.records) {
+            let _ = writeln!(s, "**[{}]** {}\n", fmt_ms(start), text);
+        }
+        return s;
+    }
     s.push_str("\n## Pliki\n\n");
     s.push_str("- `slides/` – zrzuty slajdów (PNG, bezstratnie, natywna rozdzielczość)\n");
     s.push_str("- `transcript/full.md` – pełna transkrypcja chronologicznie\n");

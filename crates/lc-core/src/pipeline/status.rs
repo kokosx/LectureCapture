@@ -57,6 +57,8 @@ pub struct RecorderStatus {
     pub state: RecState,
     pub title: String,
     pub lecture_dir: String,
+    /// Recorded without picture (lecture hall mode).
+    pub audio_only: bool,
     pub elapsed_ms: u64,
     pub slides: usize,
     pub occurrences: usize,
@@ -78,6 +80,7 @@ impl RecorderStatus {
             state: RecState::Recording,
             title: title.into(),
             lecture_dir: dir.into(),
+            audio_only: false,
             elapsed_ms: 0,
             slides: 0,
             occurrences: 0,

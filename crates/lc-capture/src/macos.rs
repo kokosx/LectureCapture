@@ -33,13 +33,59 @@ extern "C" {
     fn CGRequestScreenCaptureAccess() -> bool;
 }
 
+#[link(name = "AVFoundation", kind = "framework")]
+extern "C" {
+    static AVMediaTypeAudio: *const std::ffi::c_void;
+}
+
+#[link(name = "objc")]
+extern "C" {
+    fn objc_getClass(name: *const std::ffi::c_char) -> *const std::ffi::c_void;
+    fn sel_registerName(name: *const std::ffi::c_char) -> *const std::ffi::c_void;
+    fn objc_msgSend();
+}
+
+/// `[AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]`
+fn microphone_status() -> &'static str {
+    type Send = unsafe extern "C" fn(*const std::ffi::c_void, *const std::ffi::c_void, *const std::ffi::c_void) -> isize;
+    unsafe {
+        let cls = objc_getClass(c"AVCaptureDevice".as_ptr());
+        if cls.is_null() {
+            return "unknown";
+        }
+        let sel = sel_registerName(c"authorizationStatusForMediaType:".as_ptr());
+        let send: Send = std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+        match send(cls, sel, AVMediaTypeAudio) {
+            0 => "undetermined",
+            1 | 2 => "denied",
+            3 => "granted",
+            _ => "unknown",
+        }
+    }
+}
+
+/// Note: the screen-capture answer is cached by macOS for the life of the process –
+/// after granting, the app has to be restarted.
 pub fn permissions() -> Permissions {
-    Permissions { screen: unsafe { CGPreflightScreenCaptureAccess() }, microphone: "unknown".into() }
+    Permissions { screen: unsafe { CGPreflightScreenCaptureAccess() }, microphone: microphone_status().into() }
 }
 
 /// Shows the system prompt (only on explicit user action).
 pub fn request_screen_permission() -> bool {
     unsafe { CGRequestScreenCaptureAccess() }
+}
+
+/// Remove this app's entries from the privacy database (`tccutil reset`). Fixes a
+/// toggle that is "on" in System Settings but belongs to a previous build of the app
+/// (ad hoc signatures of older versions were tied to the binary hash).
+pub fn reset_permissions(bundle_id: &str) -> Result<()> {
+    for service in ["ScreenCapture", "Microphone"] {
+        let out = std::process::Command::new("/usr/bin/tccutil").args(["reset", service, bundle_id]).output()?;
+        if !out.status.success() {
+            bail!("tccutil reset {service}: {}", String::from_utf8_lossy(&out.stderr).trim());
+        }
+    }
+    Ok(())
 }
 
 fn content() -> Result<SCShareableContent> {

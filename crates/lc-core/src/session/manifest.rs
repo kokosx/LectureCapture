@@ -235,6 +235,11 @@ pub struct TimelineEvent {
 }
 
 impl Manifest {
+    /// Recorded without picture (lecture hall mode, microphone only).
+    pub fn is_audio_only(&self) -> bool {
+        self.capture.source.kind == crate::pipeline::AUDIO_ONLY_KIND
+    }
+
     pub fn slide(&self, id: u32) -> Option<&Slide> {
         self.slides.iter().find(|s| s.id == id)
     }

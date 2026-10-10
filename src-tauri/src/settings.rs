@@ -25,6 +25,8 @@ pub struct Settings {
     pub theme: String,
     pub last_target: Option<CaptureTarget>,
     pub last_crop: Option<NormRect>,
+    /// Previous lecture was recorded in the hall (microphone only, no picture).
+    pub last_audio_only: bool,
     /// Subject chosen for the previous lecture (preselected next time).
     pub last_subject: Option<String>,
     /// Leave the Teams meeting (keyboard shortcut) when a scheduled end is reached.
@@ -46,6 +48,7 @@ impl Default for Settings {
             theme: "system".into(),
             last_target: None,
             last_crop: None,
+            last_audio_only: false,
             last_subject: None,
             auto_leave_meeting: true,
         }

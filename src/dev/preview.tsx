@@ -1,5 +1,5 @@
 // Development-only UI preview with mocked Tauri IPC (never part of the app bundle).
-// Open http://localhost:1420/preview.html?view=dashboard|new|recording|lecture|settings|models
+// Open http://localhost:1420/preview.html?view=dashboard|new|recording|lecture|settings|models|hall|hallrec|noperm
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -17,7 +17,7 @@ const settings = {
   audio: { capture_system: true, capture_microphone: false, microphone_device: null, loopback_device: null, only_application: null, microphone_gain: 1, opus_bitrate: 32000, retention: "keep", silence_threshold_db: -60, silence_warn_ms: 30000, vad: {} },
   transcription: { enabled: true, model: "base", language: "pl", threads: 4, live: true, beam_size: 1, initial_prompt: null },
   output: { webp_archive: false, png_compression: "balanced" }, consent_acknowledged: view !== "consent",
-  capture_shortcut: "CmdOrCtrl+Shift+S", keep_awake: true, theme: dark ? "dark" : "light", last_target: null, last_crop: null,
+  capture_shortcut: "CmdOrCtrl+Shift+S", keep_awake: true, theme: dark ? "dark" : "light", last_target: null, last_crop: null, last_audio_only: view === "hall",
   last_subject: "Algorytmy i struktury danych", auto_leave_meeting: true,
 };
 const slide = (i: number) => `/dev-preview/00${i}.png`;
@@ -36,9 +36,10 @@ const words = (t0: number, text: string) => text.split(" ").map((w, i) => ({ s: 
 const parts = (t0: number, text: string, prev = false, next = false) => [{ start_ms: t0, end_ms: t0 + 5000, words: words(t0, text), continues_from_prev: prev, continues_to_next: next }];
 const status = {
   state: "recording", title: "Algorytmy i struktury danych", lecture_dir: "/Users/student/Documents/LectureCapture/2026-10-09_Algorytmy-i-struktury-danych",
+  audio_only: view === "hallrec",
   elapsed_ms: 2_745_000, slides: 17, occurrences: 21, last_slide_id: 17, last_slide_path: slide(2), current_slide_id: 17,
   video: { state: "ok", detail: null, frames: 3120, idle_ticks: 2200, dropped_frames: 0, last_frame_ms: 2_744_000, width: 2560, height: 1440 },
-  audio: { level_db: -23, peak: 0.3, sources: [{ kind: "system", enabled: true, received_samples: 1, last_push_ms: 1, level_db: -23, resyncs: 0 }], silent_for_ms: 0, no_signal: false, recorded_ms: 2_744_000, lost: null, speech_ratio: 0.71 },
+  audio: { level_db: -23, peak: 0.3, sources: [{ kind: view === "hallrec" ? "microphone" : "system", enabled: true, received_samples: 1, last_push_ms: 1, level_db: -23, resyncs: 0 }], silent_for_ms: 0, no_signal: false, recorded_ms: 2_744_000, lost: null, speech_ratio: 0.71 },
   transcription: { state: "running", model: "base", queue_len: 1, done: 96, failed: 0, lag_ms: 9000, error: null, progress: null, speed: 31.5, last_text: "" },
   lecture_bytes: 61_000_000, free_bytes: 212_000_000_000,
   warnings: [{ t_ms: 1_200_000, level: "info", message: "Ten slajd jest już zapisany (#9)." }],
@@ -80,12 +81,12 @@ mockIPC((cmd) => {
     case "get_settings": return settings;
     case "save_settings": return null;
     case "system_info": return { platform: "macos", arch: "aarch64", version: "0.1.0", whisper: "METAL = 1", models_dir: "~/Library/Application Support/app.lecturecapture/models", free_bytes: 212_000_000_000, lectures_root: settings.lectures_root, recording: view === "recording" };
-    case "recording_status": return view === "recording" ? status : null;
+    case "recording_status": return view === "recording" || view === "hallrec" ? status : null;
     case "take_recoveries": return [];
     case "list_lectures": return lectures;
     case "models_status": return models;
     case "download_status": return view === "models" ? { small: { state: "running", downloaded: 201_000_000, total: 487_601_967, error: null } } : {};
-    case "permissions": return { screen: view !== "noperm", microphone: "unknown" };
+    case "permissions": return { screen: view !== "noperm" && view !== "hall", microphone: view === "hall" ? "denied" : "granted" };
     case "list_sources": return { displays: [{ id: 1, name: "Monitor 1 (2560×1664)", width: 2560, height: 1664, scale: 2 }], windows: [
       { id: 11, title: "Algorytmy – wykład 3 | Microsoft Teams", app_name: "Microsoft Teams", bundle_id: "com.microsoft.teams2", pid: 1, width: 1400, height: 900, on_screen: true },
       { id: 12, title: "Notatki", app_name: "Notes", bundle_id: "com.apple.Notes", pid: 2, width: 900, height: 700, on_screen: true },
@@ -106,7 +107,7 @@ mockIPC((cmd) => {
 });
 
 if (view !== "dashboard") {
-  const routes: Record<string, unknown> = { new: { name: "new" }, recording: { name: "recording" }, lecture: { name: "lecture", path: "/L/1" }, settings: { name: "settings" }, models: { name: "models" }, consent: { name: "dashboard" }, noperm: { name: "new" } };
+  const routes: Record<string, unknown> = { new: { name: "new" }, recording: { name: "recording" }, lecture: { name: "lecture", path: "/L/1" }, settings: { name: "settings" }, models: { name: "models" }, consent: { name: "dashboard" }, noperm: { name: "new" }, hall: { name: "new" }, hallrec: { name: "recording" } };
   (window as any).__LC_INITIAL_ROUTE__ = routes[view];
 }
 

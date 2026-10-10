@@ -149,14 +149,15 @@ impl Driver {
     /// Advance fake time to `until_ms`, delivering 10 ms audio blocks and a frame
     /// from `frame_at(t)` every 500 ms.
     pub fn run_until(&mut self, until_ms: u64, mut frame_at: impl FnMut(u64) -> Option<Frame>) {
-        let vtx = self.video.0.lock().clone().expect("video started");
+        // `None` for audio-only recordings (`NoVideo`)
+        let vtx = self.video.0.lock().clone();
         let atx = self.audio.0.lock().clone();
         while self.t_ms < until_ms {
             self.clock.set(self.t_ms);
             if self.t_ms % 500 == 0 {
-                if let Some(f) = frame_at(self.t_ms) {
+                if let (Some(vtx), Some(f)) = (&vtx, frame_at(self.t_ms)) {
                     vtx.send(VideoEvent::Frame(f)).unwrap();
-                    wait_empty(&vtx);
+                    wait_empty(vtx);
                     std::thread::sleep(Duration::from_millis(3));
                 }
             }

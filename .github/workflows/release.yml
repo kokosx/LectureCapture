@@ -66,6 +66,17 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+      # Stable designated requirement, so macOS permissions survive app updates
+      - name: Re-sign macOS bundle (stable TCC identity)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          app=target/aarch64-apple-darwin/release/bundle/macos/LectureCapture.app
+          dmg=$(ls ${{ matrix.bundle_dir }}/${{ matrix.pattern }} | head -n1)
+          scripts/macos-stable-sign.sh "$app" "$dmg"
+          gh release upload "$TAG" "$dmg" --clobber
       # Copy with a version-independent name so README can link to releases/latest/download/<name>
       - name: Upload installer with stable name
         shell: bash
