@@ -4,7 +4,7 @@ pub mod models;
 pub mod transcriber;
 
 pub use models::{ModelInfo, ModelManager, ModelStatus, CATALOG};
-pub use transcriber::{WhisperOptions, WhisperTranscriber};
+pub use transcriber::{gpu_supported, WhisperOptions, WhisperTranscriber};
 
 /// Route whisper.cpp / ggml logging into the `log` crate (once).
 pub fn init_logging() {

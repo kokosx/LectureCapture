@@ -81,7 +81,7 @@ impl AppState {
             language: language.to_string(),
             threads: cfg.threads.max(1),
             beam_size: cfg.beam_size.max(1),
-            use_gpu: true,
+            use_gpu: true, // falls back to CPU when no usable GPU backend (see lc_whisper::gpu_supported)
             initial_prompt: cfg.initial_prompt.clone(),
         };
         Ok(Box::new(move || {
