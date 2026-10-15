@@ -34,8 +34,9 @@ impl WhisperTranscriber {
     pub fn load(model_path: &Path, model_name: &str, opts: WhisperOptions) -> Result<Self> {
         crate::init_logging();
         let mut cp = WhisperContextParameters::default();
-        cp.use_gpu(opts.use_gpu);
-        cp.flash_attn(opts.use_gpu);
+   let gpu = opts.use_gpu && cfg!(target_os = "macos");
+   cp.use_gpu(gpu);
+   cp.flash_attn(gpu);
         let ctx = WhisperContext::new_with_params(model_path.to_str().context("model path")?, cp)
             .map_err(|e| anyhow!("ładowanie modelu {}: {e}", model_path.display()))?;
         let state = ctx.create_state().map_err(|e| anyhow!("whisper state: {e}"))?;
