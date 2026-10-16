@@ -40,13 +40,13 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
+      # Prebuilt LunarG SDK: ggml-vulkan needs glslc, which the from-source setup-vulkan-sdk lacks
       - name: Vulkan SDK (Windows GPU transcription)
         if: matrix.platform == 'windows-latest'
-        uses: humbletim/setup-vulkan-sdk@v1.2.1
+        uses: humbletim/install-vulkan-sdk@v1.2
         with:
-          vulkan-query-version: 1.4.309.0
-          vulkan-components: Vulkan-Headers, Vulkan-Loader, SPIRV-Tools, Shaderc
-          vulkan-use-cache: true
+          version: 1.4.309.0
+          cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -80,8 +80,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          app=target/aarch64-apple-darwin/release/bundle/macos/LectureCapture.app
           dmg=$(ls ${{ matrix.bundle_dir }}/${{ matrix.pattern }} | head -n1)
+          # The bundler deletes bundle/macos/*.app after a dmg-only build; take the app from the dmg
+          mnt=$(mktemp -d)
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"
+          app="$RUNNER_TEMP/LectureCapture.app"
+          cp -R "$mnt/LectureCapture.app" "$app"
+          hdiutil detach "$mnt"
           scripts/macos-stable-sign.sh "$app" "$dmg"
           gh release upload "$TAG" "$dmg" --clobber
       # Copy with a version-independent name so README can link to releases/latest/download/<name>
