@@ -28,7 +28,7 @@ jobs:
             stable_name: LectureCapture-macOS-AppleSilicon.dmg
           - platform: windows-latest
             args: --bundles nsis
-            bundle_dir: target/release/bundle/nsis
+            bundle_dir: C:/t/release/bundle/nsis
             pattern: "*-setup.exe"
             stable_name: LectureCapture-Windows-Setup.exe
     runs-on: ${{ matrix.platform }}
@@ -39,7 +39,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+      # Short target dir: ggml-vulkan's nested CMake build exceeds MSBuild's 260-char path limit
+      - name: Short Cargo target dir (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: echo 'CARGO_TARGET_DIR=C:\t' >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.platform == 'windows-latest' && '. -> C:\t' || '. -> target' }}
       # Prebuilt LunarG SDK: ggml-vulkan needs glslc, which the from-source setup-vulkan-sdk lacks
       - name: Vulkan SDK (Windows GPU transcription)
         if: matrix.platform == 'windows-latest'
