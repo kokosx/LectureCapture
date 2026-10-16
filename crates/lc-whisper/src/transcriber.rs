@@ -30,14 +30,54 @@ pub struct WhisperTranscriber {
     model_name: String,
 }
 
+/// Whether a GPU backend is compiled in *and* usable on this machine.
+/// Set `LC_FORCE_CPU=1` to disable the GPU.
+pub fn gpu_supported() -> bool {
+    if std::env::var_os("LC_FORCE_CPU").is_some_and(|v| v != "0" && !v.is_empty()) {
+        return false;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(windows)]
+    {
+        // vulkan-1.dll ships with GPU drivers; without it (no GPU / VM) stay on the CPU.
+        // The DLL is delay-loaded (see src-tauri/build.rs), so a missing one must not be touched.
+        extern "system" {
+            fn LoadLibraryW(name: *const u16) -> *mut std::ffi::c_void;
+        }
+        let name: Vec<u16> = "vulkan-1.dll\0".encode_utf16().collect();
+        !unsafe { LoadLibraryW(name.as_ptr()) }.is_null()
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        false
+    }
+}
+
 impl WhisperTranscriber {
     pub fn load(model_path: &Path, model_name: &str, opts: WhisperOptions) -> Result<Self> {
         crate::init_logging();
-        let mut cp = WhisperContextParameters::default();
-        cp.use_gpu(opts.use_gpu);
-        cp.flash_attn(opts.use_gpu);
-        let ctx = WhisperContext::new_with_params(model_path.to_str().context("model path")?, cp)
-            .map_err(|e| anyhow!("ładowanie modelu {}: {e}", model_path.display()))?;
+        let path = model_path.to_str().context("model path")?;
+        // GPU: Metal on macOS, Vulkan on Windows. Only requested when the platform backend is
+        // actually usable; otherwise (or if GPU init fails) we run on the CPU.
+        let want_gpu = opts.use_gpu && gpu_supported();
+        let load = |gpu: bool| {
+            let mut cp = WhisperContextParameters::default();
+            cp.use_gpu(gpu);
+            cp.flash_attn(gpu);
+            WhisperContext::new_with_params(path, cp)
+        };
+        let ctx = match load(want_gpu) {
+            Ok(c) => c,
+            Err(e) if want_gpu => {
+                log::warn!("whisper: GPU init failed ({e}); falling back to CPU");
+                load(false).map_err(|e| anyhow!("ładowanie modelu {}: {e}", model_path.display()))?
+            }
+            Err(e) => return Err(anyhow!("ładowanie modelu {}: {e}", model_path.display())),
+        };
+        log::info!("whisper: model loaded (gpu requested: {want_gpu})");
         let state = ctx.create_state().map_err(|e| anyhow!("whisper state: {e}"))?;
         Ok(Self { ctx, state, opts, model_name: model_name.to_string() })
     }

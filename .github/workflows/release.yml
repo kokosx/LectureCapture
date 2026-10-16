@@ -40,6 +40,13 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
+      - name: Vulkan SDK (Windows GPU transcription)
+        if: matrix.platform == 'windows-latest'
+        uses: humbletim/setup-vulkan-sdk@v1.2.1
+        with:
+          vulkan-query-version: 1.4.309.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader, SPIRV-Tools, Shaderc
+          vulkan-use-cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: 22
